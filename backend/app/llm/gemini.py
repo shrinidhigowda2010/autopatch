@@ -1,7 +1,7 @@
 """Gemini client with a timeout, retries, and a second model as fallback.
 
 The key is read from GEMINI_API_KEY. When it is missing or the call fails,
-callers catch GeminiError and switch the scan to demo mode.
+callers catch GeminiError and carry on with static analysis.
 """
 
 from __future__ import annotations
@@ -51,16 +51,56 @@ class GeminiError(RuntimeError):
     pass
 
 
+# A model that just failed (overloaded, rate limited, timed out) sits out for a while,
+# so every later call doesn't pay for the same slow failure before reaching the fallback.
+COOLDOWN_S = 300.0
+_cooling_until: dict[str, float] = {}
+
+
+def model_plan(prefer_fast: bool = False) -> list[tuple[str, int]]:
+    """Models to try in order, each with how many attempts it gets.
+
+    prefer_fast puts the lighter fallback model first, for short turn-by-turn calls
+    where waiting matters more than depth (debate turns, attack inputs).
+    """
+    primary, fallback = settings.gemini_model, settings.gemini_fallback_model
+    retries = max(1, settings.gemini_retries)
+    if primary == fallback:
+        return [(primary, retries)]
+    if prefer_fast or time.monotonic() < _cooling_until.get(primary, 0.0):
+        return [(fallback, retries), (primary, 1)]
+    return [(primary, 1), (fallback, retries)]
+
+
+def mark_failed(model: str) -> None:
+    _cooling_until[model] = time.monotonic() + COOLDOWN_S
+
+
+def ask_gemini(
+    prompt: str | list[dict],
+    json_output: bool = False,
+    timeout: float | None = None,
+    prefer_fast: bool = False,
+) -> str:
+    """One prompt, primary model first, then the fallback model. A short timeout suits chatty calls."""
+    if not settings.gemini_configured:
+        raise GeminiError("GEMINI_API_KEY is not set")
+    errors = []
+    for model, attempts in model_plan(prefer_fast):
+        try:
+            return _generate(model, prompt, json_output=json_output, attempts=attempts, timeout=timeout)
+        except GeminiError as exc:
+            log.warning("gemini model %s failed: %s", model, exc)
+            mark_failed(model)
+            errors.append(str(exc))
+    raise GeminiError("; ".join(errors) or "no model answered")
+
+
 def analyze_with_gemini(files: list[tuple[str, str]]) -> list[Finding]:
     if not settings.gemini_configured:
         raise GeminiError("GEMINI_API_KEY is not set")
     prompt = _PROMPT + "\n\n" + _bundle(files)
-    try:
-        raw = _generate(settings.gemini_model, prompt)
-    except GeminiError as first:
-        log.warning("primary gemini model failed: %s", first)
-        raw = _generate(settings.gemini_fallback_model, prompt)
-    return _parse(raw, files)
+    return _parse(ask_gemini(prompt), files)
 
 
 def read_code_from_image(data: bytes, mime: str) -> dict:
@@ -71,13 +111,9 @@ def read_code_from_image(data: bytes, mime: str) -> dict:
         {"text": _VISION_PROMPT},
         {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode("ascii")}},
     ]
+    raw = ask_gemini(parts, json_output=True)
     try:
-        raw = _generate(settings.gemini_model, parts, json_output=True)
-    except GeminiError as first:
-        log.warning("primary gemini model failed on an image: %s", first)
-        raw = _generate(settings.gemini_fallback_model, parts, json_output=True)
-    try:
-        payload = json.loads(_strip_fences(raw))
+        payload = json.loads(strip_fences(raw))
     except json.JSONDecodeError as exc:
         raise GeminiError(f"Gemini did not return JSON for the image: {exc}") from exc
     if not isinstance(payload, dict):
@@ -90,7 +126,7 @@ def translate_text(text: str, language: str) -> str:
         raise GeminiError("GEMINI_API_KEY is not set")
     name = "Kannada" if language == "kn" else "Hindi"
     prompt = f"Translate the following explanation into {name}. Return only the translation.\n\n{text}"
-    return _generate(settings.gemini_model, prompt).strip()
+    return ask_gemini(prompt).strip()
 
 
 def _bundle(files: list[tuple[str, str]]) -> str:
@@ -102,7 +138,13 @@ def _bundle(files: list[tuple[str, str]]) -> str:
     return "\n\n".join(parts)
 
 
-def _generate(model: str, prompt: str | list[dict], json_output: bool = False) -> str:
+def _generate(
+    model: str,
+    prompt: str | list[dict],
+    json_output: bool = False,
+    attempts: int | None = None,
+    timeout: float | None = None,
+) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     parts = [{"text": prompt}] if isinstance(prompt, str) else prompt
     config: dict = {"temperature": 0.1}
@@ -110,10 +152,10 @@ def _generate(model: str, prompt: str | list[dict], json_output: bool = False) -
         config["responseMimeType"] = "application/json"
     body = {"contents": [{"parts": parts}], "generationConfig": config}
     last_error = "no response"
-    attempts = max(1, settings.gemini_retries)
+    attempts = max(1, attempts or settings.gemini_retries)
     for attempt in range(attempts):
         try:
-            with httpx.Client(timeout=settings.gemini_timeout_s) as client:
+            with httpx.Client(timeout=timeout or settings.gemini_timeout_s) as client:
                 response = client.post(url, params={"key": settings.gemini_api_key}, json=body)
             if response.status_code in {429, 500, 502, 503, 504}:
                 last_error = f"{model} returned {response.status_code}"
@@ -131,7 +173,7 @@ def _generate(model: str, prompt: str | list[dict], json_output: bool = False) -
     raise GeminiError(last_error)
 
 
-def _strip_fences(raw: str) -> str:
+def strip_fences(raw: str) -> str:
     text = raw.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[-1]
@@ -140,7 +182,7 @@ def _strip_fences(raw: str) -> str:
 
 
 def _parse(raw: str, files: list[tuple[str, str]]) -> list[Finding]:
-    text = _strip_fences(raw)
+    text = strip_fences(raw)
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:

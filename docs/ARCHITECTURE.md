@@ -1,6 +1,6 @@
 # Architecture
 
-Fixpilot is one process. FastAPI serves the JSON API and, after `npm run build`, the React app from `frontend/dist`.
+FixPilot is one process. FastAPI serves the JSON API and, after `npm run build`, the React app from `frontend/dist`.
 
 ```mermaid
 flowchart TB
@@ -8,7 +8,7 @@ flowchart TB
     Home[Home and one-click samples]
     Steps[Upload Scan Explain Fix Test]
     Dash[Dashboard History Benchmark]
-    Assist[Repairo Assistant chat]
+    Assist[FixPilot Assistant chat]
   end
   subgraph api [FastAPI]
     Routes[app/api/routes.py]
@@ -44,12 +44,12 @@ flowchart TB
 3. A scan reads the workspace. AST rules, pylint, pyflakes, bandit, and the secret scanner run first. Gemini runs only when `GEMINI_API_KEY` is set. On failure the primary model is retried, then `GEMINI_FALLBACK_MODEL` is tried, each call bounded by `GEMINI_TIMEOUT_S`. Sample projects then attach `samples/cache.json` and the scan mode becomes `demo`.
 4. `merge_findings` collapses two tools that saw the same file, rule, and symbol. The syntax-tree explanation is kept when it is the longer one. Confidence becomes the higher of the two.
 5. For each actionable finding, `propose_fix` rewrites only that pattern and stores a unified diff plus the red/green excerpts. The file on disk is not changed.
-6. A test run copies the workspace to a temp directory, runs pytest, writes `_autopatch_generated_test.py`, runs it, applies the fixers in another copy, and runs the generated tests and the full suite again. Events are inserted into `test_events` and streamed with SSE.
+6. A test run copies the workspace to a temp directory, runs pytest, writes `_fixpilot_generated_test.py`, runs it, applies the fixers in another copy, and runs the generated tests and the full suite again. Events are inserted into `test_events` and streamed with SSE.
 7. Accept calls the fixer again against the current workspace and writes the file. Reject only records a decision.
 
 ## Authentication & Coder ID
 
-`users` stores `coder_id` (unique, e.g. `AP-CODER-7F3K2`), email, bcrypt `password_hash`, role (`student` / `developer` / `admin`), and login timestamps. `app/auth.py` issues HS256 JWTs signed with `JWT_SECRET` (24h). Routes take an optional Bearer token via `get_optional_user`; `GET /api/auth/me` requires one.
+`users` stores `coder_id` (unique, e.g. `FP-CODER-7F3K2`; older `AP-CODER-` IDs still sign in), email, bcrypt `password_hash`, role (`student` / `developer` / `admin`), and login timestamps. `app/auth.py` issues HS256 JWTs signed with `JWT_SECRET` (24h). Routes take an optional Bearer token via `get_optional_user`; `GET /api/auth/me` requires one.
 
 Projects, scans, patches, and decisions carry nullable `user_id`. Guest / demo mode creates projects with `is_guest=true` and no owner — judges can try the pipeline without signing up. Signed-in non-admins only list and open their own projects; admins see all. Profile stats aggregate scans, bugs, and decisions for that user.
 
@@ -57,7 +57,7 @@ Projects, scans, patches, and decisions carry nullable `user_id`. Guest / demo m
 
 The Fix UI drives a human-in-the-loop loop: propose → permission card → approve / reject / edit / skip. Approves call `decide_patch` with `verify_tests=True`; if the post-apply proof fails, the workspace file is restored and a `rolled_back` decision is stored. `workspace_versions` plus on-disk `data/projects/{id}/versions/vN` implement undo last / rollback all (v0 is the immutable `source/` copy). Safe bulk apply supports `dry_run` for a pre-flight list. Rejection reasons can call Gemini for an alternative snippet. The decision log is exposed at `/api/projects/{id}/decision-log` and embedded in JSON/PDF exports.
 
-## AI Agent Assistant (Repairo)
+## AI Agent Assistant (FixPilot Assistant)
 
 `/p/{projectId}/assistant` is a ChatGPT-style chat scoped to the uploaded project. Conversations and messages live in `conversations` / `chat_messages`, keyed by `project_id` and optional `user_id` (Coder ID). The browser streams replies over SSE (`POST /api/assistant/conversations/{id}/messages`).
 
@@ -76,7 +76,7 @@ The Fix UI drives a human-in-the-loop loop: propose → permission card → appr
 | decisions | approved / rejected / edited / skipped / auto-applied / rolled_back + note + `user_id` |
 | workspace_versions | Version timeline labels and paths (v0 original → vN) |
 | history_events | The timeline on the History page |
-| conversations | Repairo Assistant threads per project / user |
+| conversations | FixPilot Assistant threads per project / user |
 | chat_messages | User and assistant turns, tool step JSON, proposed patch cards |
 
 `DATABASE_URL` starting with `postgres://` or `postgresql://` is rewritten to `postgresql+psycopg://`. An empty URL uses `data/autopatch.db`.

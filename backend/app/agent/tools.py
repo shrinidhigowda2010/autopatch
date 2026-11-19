@@ -1,4 +1,4 @@
-"""Tools the Repairo Assistant can call while chatting about a project."""
+"""Tools the FixPilot Assistant can call while chatting about a project."""
 
 from __future__ import annotations
 

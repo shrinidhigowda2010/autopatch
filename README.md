@@ -1,12 +1,12 @@
-# Fixpilot
+# FixPilot
 
 Autonomous bug detection and repair. Find it. Fix it. Prove it.
 
-A developer uploads Python code. Fixpilot scans it with real static tools and, when a key is set, Google Gemini. Each bug report says what triggers the bug and why. A minimal patch is proposed as a unified diff and a side-by-side before/after. Tests run in a sandbox before and after the patch. Nothing is written into the project until a person accepts it.
+A developer uploads Python code. FixPilot scans it with real static tools and, when a key is set, Google Gemini. Each bug report says what triggers the bug and why. A minimal patch is proposed as a unified diff and a side-by-side before/after. Tests run in a sandbox before and after the patch. Nothing is written into the project until a person accepts it.
 
 ## Problem
 
-Students and junior developers can see that a program is wrong and still not know which line is at fault, why that line fails, or whether a fix broke something else. The marks calculator in the brief is the running example: it accepts negative marks and marks over 100, and it crashes when the list is empty. Fixpilot is built to catch that class of mistake, explain it in plain language, patch only the lines that need to change, and show the test that proves it.
+Students and junior developers can see that a program is wrong and still not know which line is at fault, why that line fails, or whether a fix broke something else. The marks calculator in the brief is the running example: it accepts negative marks and marks over 100, and it crashes when the list is empty. FixPilot is built to catch that class of mistake, explain it in plain language, patch only the lines that need to change, and show the test that proves it.
 
 ## Solution
 
@@ -20,7 +20,7 @@ Five steps, in the sidebar:
 
 ### AI Agent Assistant
 
-**Repairo Assistant** (`/p/{projectId}/assistant`) is a project-scoped chat. The left sidebar lists past conversations (stored per user / Coder ID). The right panel shows the file tree and live bug list — clicking a bug attaches it as context. Messages stream token-by-token over SSE; tool steps appear as small cards (scan, explain, propose fix, run tests, show diff, search). When the agent proposes a fix, a diff card offers Approve / Reject / Edit and plugs into the same permission and audit flow as the Fix page — nothing is written without Approve. Quick-prompt chips and English / Kannada / Hindi are supported. Secrets are redacted before anything is sent to Gemini; if Gemini is down, answers fall back silently to the static findings.
+**FixPilot Assistant** (`/p/{projectId}/assistant`) is a project-scoped chat. The left sidebar lists past conversations (stored per user / Coder ID). The right panel shows the file tree and live bug list — clicking a bug attaches it as context. Messages stream token-by-token over SSE; tool steps appear as small cards (scan, explain, propose fix, run tests, show diff, search). When the agent proposes a fix, a diff card offers Approve / Reject / Edit and plugs into the same permission and audit flow as the Fix page — nothing is written without Approve. Quick-prompt chips and English / Kannada / Hindi are supported. Secrets are redacted before anything is sent to Gemini; if Gemini is down, answers fall back silently to the static findings.
 
 Every bug report has the same six sections: bug details, root cause, suggested patch, test results, severity and confidence, and change history. Low confidence is marked "needs human review".
 
@@ -46,7 +46,7 @@ Every bug report has the same six sections: bug details, root cause, suggested p
 | Accept or reject every patch; nothing applied without approval | `services.decide_patch`, Fix page |
 | Auto-Correct Mode (ask / auto-safe), rollback, decision log | Fix page, `approve`/`reject`/`edit`/`rollback-*`, `workspace_versions` |
 | Login, Coder ID, JWT, guest mode, per-user history | `auth.py`, `auth_routes.py`, Login/Register/Profile |
-| Repairo Assistant chat, tools, SSE, secret redaction | `agent/`, `assistant_routes.py`, Assistant page |
+| FixPilot Assistant chat, tools, SSE, secret redaction | `agent/`, `assistant_routes.py`, Assistant page |
 | "Apply all safe fixes" only for high-confidence patches whose tests passed | `services.apply_safe` |
 | SQLAlchemy, SQLite default, Postgres via `DATABASE_URL` | `backend/app/db.py`, `models.py` |
 | History of scans, bugs, patches, tests, decisions | `history_events` table, History page |
@@ -107,7 +107,7 @@ Style notes from pylint (a long line, a suggestion to use `enumerate`) are shown
 
 ## Authentication & Coder ID
 
-Accounts are optional. Judges can use **Continue without account** on the Login page; guest projects are not linked to a durable profile. Signed-in users get a unique **Coder ID** like `AP-CODER-7F3K2`.
+Accounts are optional. Judges can use **Continue without account** on the Login page; guest projects are not linked to a durable profile. Signed-in users get a unique **Coder ID** like `FP-CODER-7F3K2`. Accounts made before the rename keep their `AP-CODER-…` ID, and either prefix works at sign-in.
 
 - Register / login: `POST /api/auth/register`, `POST /api/auth/login` (email **or** Coder ID + password). Passwords are bcrypt-hashed; JWT access tokens last 24h (`JWT_SECRET`).
 - `GET /api/auth/me` returns profile stats (scans, bugs found, patches accepted/rejected, member since). `POST /api/auth/logout` tells the client to discard the token.
@@ -127,6 +127,14 @@ On the Fix page, choose **Manual**, **Ask Every Fix** (default), or **Auto for S
 - Frontend: React, Vite, TypeScript, Tailwind, recharts
 - Data: SQLite by default, Postgres when `DATABASE_URL` is set
 - Deploy: one Docker image, Render web service
+
+## Prove it: Break-It, the Debate Room, and the Repair Race
+
+Every proposed patch on the Fix page has a **Prove it** strip with two tools.
+
+- **🛡 Break-It attack** (`POST /api/patches/{id}/attack`) builds 10–15 hostile inputs for the patched function: empty, None, negative, huge, NaN, unicode, wrong types. Gemini suggests some and a rule-based generator fills the rest. Gemini's inputs must pass a literal-only whitelist first. The old and new code both run in the sandbox, and an animated scoreboard shows "Old code failed X/N · New code survived Y/N". A crash, a hang, or quietly accepting input the fix now refuses all count as a failure. A deliberate `raise`, or a `TypeError` on a wrong-type input, counts as a safe refusal.
+- **⚖️ AI Debate Room** (`POST /api/patches/{id}/debate`, streamed) runs three rounds where Breaker attacks the fix with an edge case and Fixer answers. A Judge then rules **Safe** or **Needs changes** with a confidence %. Each turn is its own Gemini call, using the faster model first. If Gemini drops out, the remaining turns and the verdict are built from the test results and the Break-It scoreboard.
+- **🏁 Live Repair Race** (`/race`, `POST /api/race`, streamed) is a full-screen page with a big stopwatch. Paste buggy code and the real pipeline runs: scan, then the patch, then edge-case tests run on the original and patched code (or Break-It attacks when there are no tests for that rule). The stages light up as **Bug found → Fixed → Verified**, with confetti at the end.
 
 ## What you can upload
 

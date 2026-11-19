@@ -1,4 +1,4 @@
-"""Repairo Assistant: conversations and streaming chat."""
+"""FixPilot Assistant: conversations and streaming chat."""
 
 from __future__ import annotations
 

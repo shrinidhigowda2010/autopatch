@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.auth import (
     check_login_rate,
     create_access_token,
+    coder_id_candidates,
     generate_coder_id,
     hash_password,
     require_user,
@@ -90,7 +91,7 @@ def login(body: LoginIn, request: Request, session: Session = Depends(get_sessio
     check_login_rate(request, identifier)
     user = session.scalar(select(User).where(User.email == identifier.lower()))
     if user is None:
-        user = session.scalar(select(User).where(User.coder_id == identifier.upper()))
+        user = session.scalar(select(User).where(User.coder_id.in_(coder_id_candidates(identifier))))
     if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

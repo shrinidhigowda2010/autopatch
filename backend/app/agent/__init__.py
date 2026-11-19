@@ -1,1 +1,1 @@
-"""Repairo Assistant agent: tools, redaction, and chat runner."""
+"""FixPilot Assistant agent: tools, redaction, and chat runner."""

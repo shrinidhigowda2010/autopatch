@@ -102,7 +102,7 @@ export default function Home() {
             Autonomous repair with human approval at every step.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-ink/80">
-            Fixpilot finds real bugs, explains the root cause, proposes a minimal patch, and proves it with tests —
+            FixPilot finds real bugs, explains the root cause, proposes a minimal patch, and proves it with tests —
             nothing is written until you approve.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
@@ -163,7 +163,7 @@ export default function Home() {
       </section>
 
       <section className="mt-16">
-        <h2 className="text-3xl font-semibold text-ink">Why Fixpilot</h2>
+        <h2 className="text-3xl font-semibold text-ink">Why FixPilot</h2>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {[
             ["Test-proven fixes", "Every approved change is checked in a sandbox before and after it lands."],

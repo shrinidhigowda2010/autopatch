@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { explanationFor, needsReview, percent } from "./format";
+import { explanationFor, needsReview, percent, sourceLabel } from "./format";
 
 describe("format helpers", () => {
   it("renders confidence as a percentage", () => {
@@ -23,5 +23,13 @@ describe("format helpers", () => {
     expect(needsReview(0.74, false)).toBe(true);
     expect(needsReview(0.9, false)).toBe(false);
     expect(needsReview(0.95, true)).toBe(true);
+  });
+});
+
+describe("sourceLabel", () => {
+  it("names finding sources in plain words", () => {
+    expect(sourceLabel("ast+cached_demo")).toBe("Rule engine + Project knowledge");
+    expect(sourceLabel("gemini")).toBe("Gemini");
+    expect(sourceLabel("ast+rule")).toBe("Rule engine");
   });
 });

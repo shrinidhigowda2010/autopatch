@@ -58,7 +58,7 @@ export default function TestPage() {
     <div className="mx-auto max-w-3xl">
       <h1 className="text-3xl font-semibold">Test</h1>
       <p className="mt-2 text-mist">
-        Existing tests run first. Then Fixpilot writes edge-case tests — a normal value, a minimum, a maximum, and an invalid value —
+        Existing tests run first. Then FixPilot writes edge-case tests — a normal value, a minimum, a maximum, and an invalid value —
         and runs them before and after the patch. The full suite runs again as a regression check. The program runs in a temp folder with time and memory limits.
       </p>
       <button onClick={() => void start()} className="mt-5 btn-primary">

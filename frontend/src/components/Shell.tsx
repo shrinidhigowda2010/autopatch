@@ -90,7 +90,7 @@ export default function Shell() {
                 to={assistantTo}
                 className={navClass(Boolean(projectId) && location.pathname.includes("/assistant"))}
               >
-                Repairo Assistant
+                FixPilot Assistant
               </Link>
               <Link
                 to={projectId ? `${base}/dashboard` : "/upload"}
@@ -111,6 +111,9 @@ export default function Shell() {
               )}
               <Link to="/benchmark" className={navClass(location.pathname.startsWith("/benchmark"))}>
                 Benchmark
+              </Link>
+              <Link to="/race" className={navClass(false)}>
+                🏁 Repair Race
               </Link>
             </nav>
             <div className="mt-8 hidden md:block">

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -70,33 +71,40 @@ def analyze_project(root: Path, sample_id: str | None = None, use_gemini: bool =
         text = path.read_text(encoding="utf-8", errors="replace")
         sources[rel] = text
         ast_found.extend(scan_source(rel, text))
-    tool_found, notes = run_static_tools(root, py_files)
     other_code = other_code_files(root)
-    if other_code:
-        # Static tools and sandbox tests cover Python only; other languages get AI analysis.
-        notes.append(f"{len(other_code)} non-Python file(s): AI analysis only, not verified by tests")
-        for path in other_code:
-            sources[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8", errors="replace")
-    secret_found = scan_secrets(root, text_files(root))
-    groups = [ast_found, tool_found, secret_found]
-    mode = "live"
-    gemini_error = ""
-    if use_gemini and sources:
-        try:
-            groups.append(analyze_with_gemini(list(sources.items())))
-            notes.append("gemini finished")
-        except GeminiError as exc:
-            gemini_error = str(exc)
-            notes.append(f"gemini unavailable: {exc}")
-            log.info("gemini skipped: %s", exc)
-            if sample_id:
-                mode = "demo"
-        except Exception as exc:  # noqa: BLE001
-            gemini_error = str(exc)
-            notes.append("AI layer unavailable; using static analysis")
-            if sample_id:
-                mode = "demo"
-    elif sample_id:
+    for path in other_code:
+        sources[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8", errors="replace")
+
+    # Gemini is the slow part, so it runs while the static tools do their work.
+    pool = ThreadPoolExecutor(max_workers=1)
+    ai_job = pool.submit(analyze_with_gemini, list(sources.items())) if use_gemini and sources else None
+    try:
+        tool_found, notes = run_static_tools(root, py_files)
+        if other_code:
+            # Static tools and sandbox tests cover Python only; other languages get AI analysis.
+            notes.append(f"{len(other_code)} non-Python file(s): AI analysis only, not verified by tests")
+        secret_found = scan_secrets(root, text_files(root))
+        groups = [ast_found, tool_found, secret_found]
+        mode = "live"
+        gemini_error = ""
+        if ai_job is not None:
+            try:
+                groups.append(ai_job.result())
+                notes.append("gemini finished")
+            except GeminiError as exc:
+                gemini_error = str(exc)
+                notes.append("AI layer on standby; using static analysis")
+                log.info("gemini skipped: %s", exc)
+                if sample_id:
+                    mode = "demo"
+            except Exception as exc:  # noqa: BLE001
+                gemini_error = str(exc)
+                notes.append("AI layer unavailable; using static analysis")
+                if sample_id:
+                    mode = "demo"
+    finally:
+        pool.shutdown(wait=False)
+    if ai_job is None and sample_id:
         mode = "demo"
         gemini_error = gemini_error or "GEMINI_API_KEY is not set"
         notes.append("AI layer on standby; using static analysis and project knowledge")

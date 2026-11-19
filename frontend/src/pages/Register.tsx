@@ -54,7 +54,7 @@ export default function Register() {
       <div className="mx-auto flex min-h-[80vh] max-w-lg flex-col justify-center py-10">
         <div className="card-3d p-8">
           <Logo className="h-10 w-auto" />
-          <h1 className="mt-6 text-3xl font-semibold">Welcome to Fixpilot</h1>
+          <h1 className="mt-6 text-3xl font-semibold">Welcome to FixPilot</h1>
           <p className="mt-2 text-mist">
             Save your Coder ID — you can sign in with it or your email. Scans and patch decisions stay linked to it.
           </p>
@@ -66,7 +66,7 @@ export default function Register() {
             </button>
           </div>
           <button type="button" onClick={() => navigate("/")} className="btn-primary mt-6 w-full">
-            Go to Fixpilot
+            Go to FixPilot
           </button>
         </div>
       </div>
@@ -76,7 +76,7 @@ export default function Register() {
   return (
     <div className="mx-auto flex min-h-[80vh] max-w-md flex-col justify-center py-10">
       <Logo className="h-11 w-auto" />
-      <h1 className="mt-6 text-3xl font-semibold">Create your Fixpilot account</h1>
+      <h1 className="mt-6 text-3xl font-semibold">Create your FixPilot account</h1>
       <p className="mt-2 text-mist">You will receive a unique Coder ID after signing up.</p>
       <form onSubmit={onSubmit} className="card-3d mt-6 space-y-4 p-6">
         <label className="block text-sm">

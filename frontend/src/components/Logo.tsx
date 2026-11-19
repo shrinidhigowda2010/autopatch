@@ -23,5 +23,5 @@ export default function Logo({ className = "h-9 w-auto", markOnly = false }: { c
       </svg>
     );
   }
-  return <img src={logoUrl} alt="Fixpilot" className={className} />;
+  return <img src={logoUrl} alt="FixPilot" className={className} />;
 }

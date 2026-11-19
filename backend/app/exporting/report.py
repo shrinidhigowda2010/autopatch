@@ -80,7 +80,7 @@ def render_pdf(payload: dict) -> bytes:
         pdf.set_font(font, "B" if bold else "", size)
         pdf.multi_cell(pdf.epw, height, _latin(text))
 
-    write(f"Fixpilot report: {payload['project']['name']}", size=16, bold=True, height=10)
+    write(f"FixPilot report: {payload['project']['name']}", size=16, bold=True, height=10)
     scan = payload.get("scan") or {}
     write(f"Scan {scan.get('id', 'n/a')} / mode {scan.get('mode', 'n/a')}", size=11, height=7)
     for bug in payload["bugs"]:

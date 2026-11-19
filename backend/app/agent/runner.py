@@ -1,4 +1,4 @@
-"""Repairo Assistant turn runner: Gemini tool loop + silent rule-based fallback."""
+"""FixPilot Assistant turn runner: Gemini tool loop + silent rule-based fallback."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.tools import TOOL_DECLARATIONS, execute_tool, project_context, tool_label
 from app.config import settings
-from app.llm.gemini import GeminiError
+from app.llm.gemini import GeminiError, mark_failed, model_plan
 from app.models import Bug, Project
 from app.services import latest_scan
 from sqlalchemy import select
@@ -62,7 +62,7 @@ def stream_tokens(text: str, send: EventEmit, chunk: int = 24) -> None:
 def _system_prompt(language: str, context: str) -> str:
     lang = _LANG.get(language, _LANG["en"])
     return (
-        "You are Repairo Assistant, a careful coding agent for Fixpilot. "
+        "You are FixPilot Assistant, a careful coding agent. "
         "You help the user understand bugs, tests, and proposed fixes in THEIR uploaded project. "
         "Never claim you applied a patch. Patches require the human to click Approve. "
         "Use tools when you need file contents, bug details, diffs, search, or test summaries. "
@@ -162,8 +162,6 @@ def _run_gemini(
 def _gemini_chat(contents: list[dict], system: str, tools: list | None = None) -> dict:
     if not settings.gemini_configured:
         raise GeminiError("GEMINI_API_KEY is not set")
-    model = settings.gemini_model
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     body: dict[str, Any] = {
         "system_instruction": {"parts": [{"text": system}]},
         "contents": contents,
@@ -171,17 +169,21 @@ def _gemini_chat(contents: list[dict], system: str, tools: list | None = None) -
     }
     if tools:
         body["tools"] = tools
-    with httpx.Client(timeout=max(settings.gemini_timeout_s, 45.0)) as client:
-        response = client.post(url, params={"key": settings.gemini_api_key}, json=body)
-    if response.status_code >= 400:
-        # Fallback model once
-        model = settings.gemini_fallback_model
+    last = "no model answered"
+    for model, _attempts in model_plan():
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        with httpx.Client(timeout=max(settings.gemini_timeout_s, 45.0)) as client:
-            response = client.post(url, params={"key": settings.gemini_api_key}, json=body)
-        if response.status_code >= 400:
-            raise GeminiError(f"{model} returned {response.status_code}")
-    return response.json()
+        try:
+            with httpx.Client(timeout=max(settings.gemini_timeout_s, 30.0)) as client:
+                response = client.post(url, params={"key": settings.gemini_api_key}, json=body)
+        except httpx.HTTPError as exc:
+            mark_failed(model)
+            last = f"{model}: {exc.__class__.__name__}"
+            continue
+        if response.status_code < 400:
+            return response.json()
+        mark_failed(model)
+        last = f"{model} returned {response.status_code}"
+    raise GeminiError(last)
 
 
 def _preview(result: dict) -> str:

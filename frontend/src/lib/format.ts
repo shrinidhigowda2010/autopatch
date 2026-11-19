@@ -22,3 +22,25 @@ export function explanationFor(
 export function needsReview(confidence: number, flagged: boolean): boolean {
   return flagged || confidence < 0.8;
 }
+
+const SOURCE_NAMES: Record<string, string> = {
+  ast: "Rule engine",
+  rule: "Rule engine",
+  gemini: "Gemini",
+  pylint: "pylint",
+  pyflakes: "pyflakes",
+  bandit: "bandit",
+  secrets: "Secret scanner",
+  secret_scan: "Secret scanner",
+  cached_demo: "Project knowledge",
+};
+
+// "ast+cached_demo" -> "Rule engine + Project knowledge"
+export function sourceLabel(source: string): string {
+  const names = source
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => SOURCE_NAMES[part] ?? part);
+  return Array.from(new Set(names)).join(" + ");
+}

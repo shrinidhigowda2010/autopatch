@@ -28,8 +28,8 @@ def test_register_returns_coder_id_and_token(client):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["access_token"]
-    assert body["coder_id"].startswith("AP-CODER-")
-    assert len(body["coder_id"]) == len("AP-CODER-XXXXX")
+    assert body["coder_id"].startswith("FP-CODER-")
+    assert len(body["coder_id"]) == len("FP-CODER-XXXXX")
     assert body["user"]["email"] == "alice@example.com"
     assert "password" not in body["user"]
     assert "password_hash" not in body["user"]
@@ -43,7 +43,7 @@ def test_login_with_email(client):
     )
     assert response.status_code == 200, response.text
     assert response.json()["access_token"]
-    assert response.json()["coder_id"].startswith("AP-CODER-")
+    assert response.json()["coder_id"].startswith("FP-CODER-")
 
 
 def test_login_with_coder_id(client):
@@ -139,3 +139,20 @@ def test_guest_can_still_load_sample(client):
     response = client.post("/api/projects/sample", json={"sample_id": "marks_calculator"})
     assert response.status_code == 200
     assert response.json()["is_guest"] is True
+
+
+def test_legacy_ap_coder_ids_still_sign_in(client):
+    from app.db import SessionLocal
+    from app.models import User
+
+    created = _register(client, "legacy@example.com", password="secretpass", name="Legacy")
+    new_id = created.json()["coder_id"]
+    legacy_id = "AP-CODER-" + new_id.removeprefix("FP-CODER-")
+    with SessionLocal() as session:
+        user = session.query(User).filter(User.coder_id == new_id).one()
+        user.coder_id = legacy_id
+        session.commit()
+    for typed in (legacy_id, legacy_id.lower(), new_id):
+        response = client.post("/api/auth/login", json={"identifier": typed, "password": "secretpass"})
+        assert response.status_code == 200, typed
+        assert response.json()["coder_id"] == legacy_id

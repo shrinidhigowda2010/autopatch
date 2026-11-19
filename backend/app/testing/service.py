@@ -36,7 +36,7 @@ def prove(
             emit(message, status, payload or {})
 
     actionable = [item for item in findings if item.category != "style" and item.severity != "low"]
-    scratch_root = Path(tempfile.mkdtemp(prefix="autopatch-proof-"))
+    scratch_root = Path(tempfile.mkdtemp(prefix="fixpilot-proof-"))
     before = scratch_root / "before"
     after = scratch_root / "after"
     shutil.copytree(workspace, before)
@@ -51,9 +51,9 @@ def prove(
     )
 
     generated = render_tests(actionable)
-    (before / "_autopatch_generated_test.py").write_text(generated, encoding="utf-8")
+    (before / "_fixpilot_generated_test.py").write_text(generated, encoding="utf-8")
     say("Running generated edge-case tests (normal, min, max, invalid) on the original code.")
-    gen_before = run_pytest(before, "_autopatch_generated_test.py")
+    gen_before = run_pytest(before, "_fixpilot_generated_test.py")
     say(
         "Generated tests failed on the original code, which is what an unfixed bug should do."
         if not gen_before.ok
@@ -65,10 +65,10 @@ def prove(
     say("Applying the proposed patches in a scratch copy. The project itself is unchanged.")
     changed = apply_findings(after, actionable)
     say(f"Patched {len(changed)} file(s) in the scratch copy.", "info", {"files": changed})
-    (after / "_autopatch_generated_test.py").write_text(generated, encoding="utf-8")
+    (after / "_fixpilot_generated_test.py").write_text(generated, encoding="utf-8")
 
     say("Re-running the generated tests on the patched code.")
-    gen_after = run_pytest(after, "_autopatch_generated_test.py")
+    gen_after = run_pytest(after, "_fixpilot_generated_test.py")
     say(
         "Generated tests passed after the patch." if gen_after.ok else "Generated tests still fail after the patch.",
         "pass" if gen_after.ok else "fail",
@@ -84,13 +84,26 @@ def prove(
     )
 
     per_bug = []
-    for finding in actionable:
+    if len(actionable) == 1:
+        # One bug: the patched generated-test run above already is its on-its-own check.
+        only = actionable[0]
+        per_bug.append(
+            {
+                "rule_id": only.rule_id,
+                "symbol": only.symbol,
+                "file": only.file,
+                "passed": gen_after.ok,
+                "stdout": gen_after.stdout,
+                "stderr": gen_after.stderr,
+            }
+        )
+    for finding in actionable if len(actionable) > 1 else []:
         say(f"Checking the patch for {finding.symbol or finding.rule_id} on its own.")
         scratch = scratch_root / f"bug-{finding.rule_id}-{finding.symbol}"
         shutil.copytree(workspace, scratch)
         apply_findings(scratch, [finding])
-        (scratch / "_autopatch_generated_test.py").write_text(render_tests([finding]), encoding="utf-8")
-        alone = run_pytest(scratch, "_autopatch_generated_test.py")
+        (scratch / "_fixpilot_generated_test.py").write_text(render_tests([finding]), encoding="utf-8")
+        alone = run_pytest(scratch, "_fixpilot_generated_test.py")
         passed = alone.ok
         per_bug.append(
             {

@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     sandbox_mem_mb: int = 512
     rate_limit_per_minute: int = 40
     app_env: str = "development"
-    jwt_secret: str = "dev-only-change-me-autopatch-jwt-secret"
+    jwt_secret: str = "dev-only-change-me-fixpilot-jwt-secret"
 
     @property
     def repo_root(self) -> Path:
@@ -46,7 +46,8 @@ class Settings(BaseSettings):
 
     @property
     def data_dir(self) -> Path:
-        raw = os.environ.get("AUTOPATCH_DATA_DIR", "").strip()
+        # FIXPILOT_DATA_DIR is the new name; AUTOPATCH_DATA_DIR still works for older setups.
+        raw = (os.environ.get("FIXPILOT_DATA_DIR") or os.environ.get("AUTOPATCH_DATA_DIR", "")).strip()
         path = Path(raw) if raw else REPO_ROOT / "data"
         path.mkdir(parents=True, exist_ok=True)
         return path

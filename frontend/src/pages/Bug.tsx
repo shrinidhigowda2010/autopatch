@@ -4,7 +4,7 @@ import { api } from "../api";
 import DiffView from "../components/DiffView";
 import SeverityBadge from "../components/Severity";
 import { usePrefs } from "../components/Shell";
-import { explanationFor, percent } from "../lib/format";
+import { explanationFor, percent, sourceLabel } from "../lib/format";
 import type { Bug } from "../types";
 
 export default function BugPage() {
@@ -38,7 +38,7 @@ export default function BugPage() {
       <section>
         <h2 className="text-sm uppercase tracking-wide text-mist">Bug details</h2>
         <h1 className="mt-1 text-3xl font-semibold">{bug.bug_details.title}</h1>
-        <p className="mt-2 font-mono text-sm text-mist">{bug.bug_details.file}:{bug.bug_details.line} · {bug.bug_details.symbol} · {bug.bug_details.source}</p>
+        <p className="mt-2 font-mono text-sm text-mist">{bug.bug_details.file}:{bug.bug_details.line} · {bug.bug_details.symbol} · {sourceLabel(bug.bug_details.source)}</p>
         <p className="mt-3">{bug.bug_details.description}</p>
         <pre className="mt-3 overflow-auto rounded-2xl border border-line bg-cream p-3 font-mono text-xs">{bug.bug_details.snippet}</pre>
         {bug.bug_details.cached_root_cause && (

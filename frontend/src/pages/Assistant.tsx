@@ -301,7 +301,7 @@ export default function Assistant() {
     } else {
       await api(`/api/patches/${patchId}/reject`, {
         method: "POST",
-        body: JSON.stringify({ note: "Rejected from Repairo Assistant" }),
+        body: JSON.stringify({ note: "Rejected from FixPilot Assistant" }),
       });
     }
     setMessages((prev) =>
@@ -322,7 +322,7 @@ export default function Assistant() {
       <aside className="flex w-full flex-col border-b border-line bg-panel md:w-64 md:border-b-0 md:border-r">
         <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-3">
           <div>
-            <p className="text-sm font-semibold">Repairo Assistant</p>
+            <p className="text-sm font-semibold">FixPilot Assistant</p>
             <p className="text-xs text-mist">Project chats</p>
           </div>
           <button type="button" onClick={() => void newChat()} className="btn-secondary px-2 py-1 text-xs">
@@ -392,7 +392,7 @@ export default function Assistant() {
           {typing && (
             <div className="flex items-center gap-2 text-sm text-mist">
               <Logo markOnly className="h-6 w-auto" />
-              <span className="animate-pulse">Repairo is thinking…</span>
+              <span className="animate-pulse">FixPilot is thinking…</span>
             </div>
           )}
           <div ref={bottomRef} />

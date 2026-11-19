@@ -182,7 +182,7 @@ class HistoryEvent(Base):
 
 
 class Conversation(Base):
-    """Repairo Assistant chat thread, scoped to a project and optional user."""
+    """FixPilot Assistant chat thread, scoped to a project and optional user."""
 
     __tablename__ = "conversations"
 

@@ -139,7 +139,7 @@ def ingest_bytes(project_id: str, filename: str, data: bytes) -> Path:
     return write_files(project_id, [(item.path, item.content) for item in extraction.files])
 
 
-PASTE_ORIGINS = {"paste", "upload", "pdf", "image", "notebook", "docx", "code"}
+PASTE_ORIGINS = {"paste", "upload", "pdf", "image", "notebook", "docx", "code", "race"}
 
 
 def create_from_files(
@@ -413,37 +413,41 @@ def _write_patch_content(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-def _verify_workspace_tests(project: Project, bug: Bug | None) -> tuple[bool, dict]:
-    """Quick proof after applying one fix. Returns (ok, summary)."""
+def finding_from_bug(bug: Bug):
+    """Rebuild the analysis Finding for a stored bug, for test generation and patching."""
     from app.analysis.findings import Finding
 
-    findings: list[Finding] = []
+    return Finding(
+        rule_id=bug.rule_id,
+        file=bug.file,
+        line=bug.line,
+        end_line=bug.end_line,
+        symbol=bug.symbol,
+        title=bug.title,
+        description=bug.description,
+        category=bug.category,
+        severity=bug.severity,
+        confidence=bug.confidence,
+        impact=bug.impact,
+        root_cause=bug.root_cause,
+        trigger=bug.trigger,
+        student_explanation=bug.student_explanation,
+        explanation_kn=bug.explanation_kn,
+        explanation_hi=bug.explanation_hi,
+        source=bug.source,
+        needs_human_review=bug.needs_human_review,
+        snippet=bug.snippet,
+        extra=json.loads(bug.extra_json or "{}"),
+        demo_cache_used=bug.demo_cache_used,
+    )
+
+
+def _verify_workspace_tests(project: Project, bug: Bug | None) -> tuple[bool, dict]:
+    """Quick proof after applying one fix. Returns (ok, summary)."""
+
+    findings = []
     if bug is not None:
-        findings.append(
-            Finding(
-                rule_id=bug.rule_id,
-                file=bug.file,
-                line=bug.line,
-                end_line=bug.end_line,
-                symbol=bug.symbol,
-                title=bug.title,
-                description=bug.description,
-                category=bug.category,
-                severity=bug.severity,
-                confidence=bug.confidence,
-                impact=bug.impact,
-                root_cause=bug.root_cause,
-                trigger=bug.trigger,
-                student_explanation=bug.student_explanation,
-                explanation_kn=bug.explanation_kn,
-                explanation_hi=bug.explanation_hi,
-                source=bug.source,
-                needs_human_review=bug.needs_human_review,
-                snippet=bug.snippet,
-                extra=json.loads(bug.extra_json or "{}"),
-                demo_cache_used=bug.demo_cache_used,
-            )
-        )
+        findings.append(finding_from_bug(bug))
     try:
         summary = prove(workspace_for(project), findings, emit=None)
     except Exception as exc:  # noqa: BLE001
@@ -618,7 +622,7 @@ def decide_patch(
 
 def regenerate_fix_after_rejection(session: Session, patch: Patch, reason: str) -> dict:
     """Ask Gemini for an alternative explanation/fix hint after a rejection with a reason."""
-    from app.llm.gemini import GeminiError, _generate
+    from app.llm.gemini import GeminiError, ask_gemini
     from app.config import settings
 
     bug = session.get(Bug, patch.bug_id)
@@ -638,7 +642,7 @@ def regenerate_fix_after_rejection(session: Session, patch: Patch, reason: str) 
         'Return JSON: {"explanation": "...", "after_code": "..."}'
     )
     try:
-        raw = _generate(settings.gemini_model, prompt)
+        raw = ask_gemini(prompt)
     except GeminiError as exc:
         return {"available": False, "message": str(exc), "alternative": None}
     text = raw.strip()
@@ -980,35 +984,10 @@ def run_tests_job(run_id: str) -> None:
         bugs = []
         if scan:
             bugs = list(session.scalars(select(Bug).where(Bug.scan_id == scan.id)).all())
-        from app.analysis.findings import Finding
 
         findings = []
         for bug in bugs:
-            findings.append(
-                Finding(
-                    rule_id=bug.rule_id,
-                    file=bug.file,
-                    line=bug.line,
-                    end_line=bug.end_line,
-                    symbol=bug.symbol,
-                    title=bug.title,
-                    description=bug.description,
-                    category=bug.category,
-                    severity=bug.severity,
-                    confidence=bug.confidence,
-                    impact=bug.impact,
-                    root_cause=bug.root_cause,
-                    trigger=bug.trigger,
-                    student_explanation=bug.student_explanation,
-                    explanation_kn=bug.explanation_kn,
-                    explanation_hi=bug.explanation_hi,
-                    source=bug.source,
-                    needs_human_review=bug.needs_human_review,
-                    snippet=bug.snippet,
-                    extra=json.loads(bug.extra_json or "{}"),
-                    demo_cache_used=bug.demo_cache_used,
-                )
-            )
+            findings.append(finding_from_bug(bug))
 
         def emit(message: str, status: str = "info", payload: dict | None = None) -> None:
             from app.models import TestEvent

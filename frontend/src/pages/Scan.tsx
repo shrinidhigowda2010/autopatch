@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import FileTree from "../components/FileTree";
 import SeverityBadge from "../components/Severity";
+import { sourceLabel } from "../lib/format";
 import type { Project, Scan } from "../types";
 
 export default function Scan() {
@@ -116,7 +117,7 @@ export default function Scan() {
                   {bug.severity_and_confidence.needs_human_review && <span className="text-xs text-amber">needs human review</span>}
                 </div>
                 <p className="mt-2 font-medium">{bug.bug_details.title}</p>
-                <p className="font-mono text-xs text-mist">{bug.bug_details.file}:{bug.bug_details.line} · {bug.bug_details.source}</p>
+                <p className="font-mono text-xs text-mist">{bug.bug_details.file}:{bug.bug_details.line} · {sourceLabel(bug.bug_details.source)}</p>
               </Link>
             ))}
           </div>

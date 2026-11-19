@@ -19,7 +19,8 @@ from app.db import get_session
 from app.limiter import RateLimiter
 from app.models import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Cost 10 keeps sign-in under half a second on a laptop; older cost-12 hashes still verify.
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=10)
 bearer_scheme = HTTPBearer(auto_error=False)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_HOURS = 24
@@ -28,6 +29,17 @@ ACCESS_TOKEN_HOURS = 24
 login_limiter = RateLimiter(limit=10, window=60.0)
 
 _CODER_ALPHABET = string.ascii_uppercase + string.digits
+CODER_PREFIX = "FP-CODER-"
+LEGACY_CODER_PREFIX = "AP-CODER-"
+
+
+def coder_id_candidates(identifier: str) -> list[str]:
+    """IDs to look up for a typed coder ID. Old AP-CODER IDs and new FP-CODER IDs both work."""
+    value = identifier.strip().upper()
+    for prefix, other in ((CODER_PREFIX, LEGACY_CODER_PREFIX), (LEGACY_CODER_PREFIX, CODER_PREFIX)):
+        if value.startswith(prefix):
+            return [value, other + value[len(prefix):]]
+    return [value]
 
 
 def hash_password(password: str) -> str:
@@ -41,7 +53,7 @@ def verify_password(plain: str, password_hash: str) -> bool:
 def generate_coder_id(session: Session) -> str:
     for _ in range(32):
         suffix = "".join(secrets.choice(_CODER_ALPHABET) for _ in range(5))
-        coder_id = f"AP-CODER-{suffix}"
+        coder_id = f"{CODER_PREFIX}{suffix}"
         exists = session.scalar(select(User.id).where(User.coder_id == coder_id))
         if not exists:
             return coder_id

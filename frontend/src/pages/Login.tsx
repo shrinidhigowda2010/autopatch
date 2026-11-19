@@ -41,7 +41,7 @@ export default function Login() {
     <div className="mx-auto flex min-h-[80vh] max-w-md flex-col justify-center py-10">
       <Logo className="h-11 w-auto" />
       <p className="mt-4 font-mono text-xs uppercase tracking-[0.2em] text-mist">Find it. Fix it. Prove it.</p>
-      <h1 className="mt-2 text-3xl font-semibold text-ink">Sign in to Fixpilot</h1>
+      <h1 className="mt-2 text-3xl font-semibold text-ink">Sign in to FixPilot</h1>
       <p className="mt-2 text-mist">Use your email or Coder ID. Or continue without an account to explore.</p>
       <form onSubmit={onSubmit} className="card-3d mt-6 space-y-4 p-6">
         <label className="block text-sm">
@@ -52,7 +52,7 @@ export default function Login() {
             required
             autoComplete="username"
             className="mt-1 w-full rounded-2xl border border-line bg-cream px-3 py-2.5 text-ink"
-            placeholder="you@college.edu or AP-CODER-XXXXX"
+            placeholder="you@college.edu or FP-CODER-XXXXX"
           />
         </label>
         <label className="block text-sm">

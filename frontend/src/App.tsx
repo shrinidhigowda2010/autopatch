@@ -15,11 +15,13 @@ import Register from "./pages/Register";
 import Scan from "./pages/Scan";
 import TestPage from "./pages/Test";
 import Assistant from "./pages/Assistant";
+import Race from "./pages/Race";
 import Upload from "./pages/Upload";
 
 export default function App() {
   return (
     <Routes>
+      <Route path="race" element={<Race />} />
       <Route element={<Shell />}>
         <Route index element={<Home />} />
         <Route path="login" element={<Login />} />

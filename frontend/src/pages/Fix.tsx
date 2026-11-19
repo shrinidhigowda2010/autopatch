@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import DiffView from "../components/DiffView";
+import ProofArena from "../components/ProofArena";
 import { usePrefs } from "../components/Shell";
 import type { Bug, Scan } from "../types";
 
@@ -409,6 +410,7 @@ export default function Fix() {
                 <div className="mt-3">
                   <DiffView before={patch.before_code} after={patch.after_code} diff={patch.diff} />
                 </div>
+                <ProofArena patchId={patch.id} />
                 <div className="mt-3 flex flex-wrap gap-2">
                   {patch.status === "proposed" && (
                     <>
@@ -576,6 +578,8 @@ function PermissionCard({
         <span className="text-mist"> → </span>
         <span className={afterPass ? "text-fixed" : "text-mist"}>after {afterPass ? "passing" : "run tests to prove"}</span>
       </div>
+
+      <ProofArena key={patch.id} patchId={patch.id} />
 
       {editing && (
         <div className="mt-4">

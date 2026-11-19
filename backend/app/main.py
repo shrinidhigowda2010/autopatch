@@ -1,4 +1,4 @@
-"""Fixpilot web service. The API and, when built, the React app live here."""
+"""FixPilot web service. The API and, when built, the React app live here."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app import __version__
+from app.api.arena_routes import router as arena_router
 from app.api.assistant_routes import router as assistant_router
 from app.api.auth_routes import router as auth_router
 from app.api.routes import router
@@ -32,13 +33,14 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(
-    title="Fixpilot",
+    title="FixPilot",
     version=__version__,
     summary="Find it. Fix it. Prove it.",
     lifespan=lifespan,
 )
 app.include_router(auth_router)
 app.include_router(assistant_router)
+app.include_router(arena_router)
 app.include_router(router)
 
 
@@ -51,7 +53,7 @@ async def access_log(request: Request, call_next):
         log.exception("unhandled error", extra={"method": request.method, "path": request.url.path})
         raise
     elapsed = round((time.perf_counter() - started) * 1000, 1)
-    logging.getLogger("autopatch.access").info(
+    logging.getLogger("fixpilot.access").info(
         "request",
         extra={"method": request.method, "path": request.url.path, "status": response.status_code, "ms": elapsed},
     )
@@ -101,7 +103,7 @@ def home():
     page = _spa_index()
     if page:
         return _file_response(page, cache=False)
-    return {"name": "Fixpilot", "docs": "/docs", "health": "/api/health"}
+    return {"name": "FixPilot", "docs": "/docs", "health": "/api/health"}
 
 
 @app.get("/{full_path:path}", include_in_schema=False)

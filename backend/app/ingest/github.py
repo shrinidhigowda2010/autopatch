@@ -27,7 +27,7 @@ def download_github(url: str) -> Path:
     owner, repo = parse_github_url(url)
     branch = _default_branch(owner, repo)
     payload = _download_zip(owner, repo, branch)
-    dest = Path(tempfile.mkdtemp(prefix="autopatch-gh-"))
+    dest = Path(tempfile.mkdtemp(prefix="fixpilot-gh-"))
     archive_path = dest / "repo.zip"
     archive_path.write_bytes(payload)
     with zipfile.ZipFile(archive_path) as archive:
@@ -42,7 +42,7 @@ def _default_branch(owner: str, repo: str) -> str:
         with httpx.Client(timeout=12, follow_redirects=True) as client:
             response = client.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
-                headers={"Accept": "application/vnd.github+json", "User-Agent": "autopatch"},
+                headers={"Accept": "application/vnd.github+json", "User-Agent": "FixPilot"},
             )
         if response.status_code == 200:
             name = response.json().get("default_branch")
@@ -63,7 +63,7 @@ def _download_zip(owner: str, repo: str, branch: str) -> bytes:
         for name in candidates:
             url = f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{name}"
             try:
-                response = client.get(url, headers={"User-Agent": "autopatch"})
+                response = client.get(url, headers={"User-Agent": "FixPilot"})
             except httpx.HTTPError as exc:
                 last = str(exc)
                 continue

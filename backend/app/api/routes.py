@@ -545,7 +545,7 @@ def ask_ai_about_fix(
             ),
             "source": "local",
         }
-    from app.llm.gemini import GeminiError, _generate
+    from app.llm.gemini import GeminiError, ask_gemini
 
     prompt = (
         "Answer the user's question about this proposed bug fix in clear short paragraphs.\n"
@@ -554,7 +554,7 @@ def ask_ai_about_fix(
         f"Question: {body.question}"
     )
     try:
-        answer = _generate(settings.gemini_model, prompt).strip()
+        answer = ask_gemini(prompt).strip()
     except GeminiError as exc:
         raise HTTPException(503, f"Ask AI needs Gemini. {exc}") from exc
     return {"answer": answer, "source": "gemini"}
