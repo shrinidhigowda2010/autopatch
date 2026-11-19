@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth import get_optional_user
 from app.benchmark.runner import run_benchmark, sample_catalog
 from app.config import settings
 from app.db import SessionLocal, get_session
@@ -19,20 +21,31 @@ from app.ids import new_id
 from app.ingest.files import IngestError
 from app.limiter import limit_request
 from app.llm.gemini import GeminiError, translate_text
-from app.models import Bug, HistoryEvent, Patch, Project, Scan, TestEvent, TestRun
+from app.models import Bug, HistoryEvent, Patch, Project, Scan, TestEvent, TestRun, User
 from app.services import (
     apply_safe,
     create_from_github,
     create_from_sample,
     create_from_upload,
     decide_patch,
+    decision_log,
+    fix_progress,
+    health_score,
     latest_scan,
+    list_versions,
+    regenerate_fix_after_rejection,
+    risk_level,
+    rollback_all,
+    rollback_last,
     run_scan,
     run_tests_job,
+    user_can_access,
     workspace_for,
 )
 
 router = APIRouter(prefix="/api")
+
+OptionalUser = Annotated[User | None, Depends(get_optional_user)]
 
 
 class SampleIn(BaseModel):
@@ -46,16 +59,41 @@ class GithubIn(BaseModel):
 class DecisionIn(BaseModel):
     action: str
     note: str = ""
+    edited_code: str | None = None
+    verify_tests: bool = False
 
 
 class TranslateIn(BaseModel):
     language: str = Field(pattern="^(kn|hi|en)$")
 
 
-def _project(session: Session, project_id: str) -> Project:
+class ApplySafeIn(BaseModel):
+    dry_run: bool = False
+    mode: str = "safe"  # safe | auto_safe
+    confirm: bool = True
+
+
+class RejectIn(BaseModel):
+    note: str = ""
+    try_another: bool = False
+
+
+class EditIn(BaseModel):
+    edited_code: str = Field(min_length=1)
+    note: str = ""
+    verify_tests: bool = True
+
+
+class AskAiIn(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+
+
+def _project(session: Session, project_id: str, user: User | None = None) -> Project:
     project = session.get(Project, project_id)
     if project is None:
         raise HTTPException(404, "Project not found.")
+    if not user_can_access(project, user):
+        raise HTTPException(403, "You do not have access to this project.")
     return project
 
 
@@ -105,6 +143,7 @@ def _bug_dict(session: Session, bug: Bug) -> dict:
             "impact": bug.impact,
             "needs_human_review": bug.needs_human_review,
         },
+        "risk_level": risk_level(bug),
         "change_history": [
             {"kind": event.kind, "message": event.message, "at": event.created_at.isoformat()} for event in history
         ],
@@ -122,6 +161,7 @@ def _patch_dict(patch: Patch) -> dict:
         "status": patch.status,
         "source": patch.source,
         "confidence": patch.confidence,
+        "user_id": patch.user_id,
     }
 
 
@@ -132,6 +172,8 @@ def _project_dict(project: Project) -> dict:
         "source_type": project.source_type,
         "sample_id": project.sample_id,
         "github_url": project.github_url,
+        "user_id": project.user_id,
+        "is_guest": project.is_guest,
         "created_at": project.created_at.isoformat(),
         "file_count": project.file_count,
         "languages": json.loads(project.languages_json or "[]"),
@@ -146,6 +188,7 @@ def _scan_dict(scan: Scan) -> dict:
     return {
         "id": scan.id,
         "project_id": scan.project_id,
+        "user_id": scan.user_id,
         "status": scan.status,
         "mode": scan.mode,
         "error": scan.error,
@@ -160,7 +203,9 @@ def health() -> dict:
     return {
         "status": "ok",
         "gemini_configured": settings.gemini_configured,
+        # Kept for older clients; UI shows ai_engine instead of any "demo" label.
         "demo_mode": not settings.gemini_configured,
+        "ai_engine": "online" if settings.gemini_configured else "standby",
         "database": "postgres" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
     }
 
@@ -171,52 +216,64 @@ def samples() -> list[dict]:
 
 
 @router.get("/projects")
-def list_projects(session: Session = Depends(get_session)) -> list[dict]:
-    rows = session.scalars(select(Project).order_by(Project.created_at.desc())).all()
+def list_projects(session: Session = Depends(get_session), user: OptionalUser = None) -> list[dict]:
+    if user is None:
+        # Guest / demo: do not expose other people's saved projects.
+        return []
+    if user.role == "admin":
+        rows = session.scalars(select(Project).order_by(Project.created_at.desc())).all()
+    else:
+        rows = session.scalars(
+            select(Project).where(Project.user_id == user.id).order_by(Project.created_at.desc())
+        ).all()
     return [_project_dict(row) for row in rows]
 
 
 @router.post("/projects/sample", dependencies=[Depends(limit_request)])
-def load_sample(body: SampleIn, session: Session = Depends(get_session)) -> dict:
+def load_sample(body: SampleIn, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
     origin = settings.samples_dir / body.sample_id / "project"
     truth = settings.samples_dir / body.sample_id / "ground_truth.json"
     if not origin.is_dir() or not truth.is_file():
         raise HTTPException(404, "Unknown sample.")
     meta = json.loads(truth.read_text(encoding="utf-8"))
     try:
-        project = create_from_sample(session, body.sample_id, meta["title"], origin)
+        project = create_from_sample(session, body.sample_id, meta["title"], origin, user=user)
     except IngestError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     return _project_dict(project)
 
 
 @router.post("/projects/upload", dependencies=[Depends(limit_request)])
-async def upload(file: UploadFile = File(...), session: Session = Depends(get_session)) -> dict:
+async def upload(
+    file: UploadFile = File(...), session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
     data = await file.read()
     try:
-        project = create_from_upload(session, file.filename or "upload.txt", data)
+        project = create_from_upload(session, file.filename or "upload.txt", data, user=user)
     except IngestError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     return _project_dict(project)
 
 
 @router.post("/projects/github", dependencies=[Depends(limit_request)])
-def from_github(body: GithubIn, session: Session = Depends(get_session)) -> dict:
+def from_github(body: GithubIn, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
     try:
-        project = create_from_github(session, body.url)
+        project = create_from_github(session, body.url, user=user)
     except IngestError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     return _project_dict(project)
 
 
 @router.get("/projects/{project_id}")
-def get_project(project_id: str, session: Session = Depends(get_session)) -> dict:
-    return _project_dict(_project(session, project_id))
+def get_project(project_id: str, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
+    return _project_dict(_project(session, project_id, user))
 
 
 @router.get("/projects/{project_id}/file")
-def read_file(project_id: str, path: str, session: Session = Depends(get_session)) -> dict:
-    project = _project(session, project_id)
+def read_file(
+    project_id: str, path: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    project = _project(session, project_id, user)
     root = workspace_for(project).resolve()
     target = (root / path).resolve()
     if target != root and root not in target.parents or not target.is_file():
@@ -231,42 +288,52 @@ def read_file(project_id: str, path: str, session: Session = Depends(get_session
 
 
 @router.post("/projects/{project_id}/scans", dependencies=[Depends(limit_request)])
-def start_scan(project_id: str, session: Session = Depends(get_session)) -> dict:
-    project = _project(session, project_id)
-    scan = run_scan(session, project)
+def start_scan(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    project = _project(session, project_id, user)
+    scan = run_scan(session, project, user=user)
     bugs = session.scalars(select(Bug).where(Bug.scan_id == scan.id)).all()
     return {**_scan_dict(scan), "bugs": [_bug_dict(session, bug) for bug in bugs]}
 
 
 @router.get("/projects/{project_id}/scans")
-def list_scans(project_id: str, session: Session = Depends(get_session)) -> list[dict]:
-    _project(session, project_id)
+def list_scans(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> list[dict]:
+    _project(session, project_id, user)
     rows = session.scalars(select(Scan).where(Scan.project_id == project_id).order_by(Scan.started_at.desc())).all()
     return [_scan_dict(row) for row in rows]
 
 
 @router.get("/scans/{scan_id}")
-def get_scan(scan_id: str, session: Session = Depends(get_session)) -> dict:
+def get_scan(scan_id: str, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
     scan = session.get(Scan, scan_id)
     if scan is None:
         raise HTTPException(404, "Scan not found.")
+    _project(session, scan.project_id, user)
     bugs = session.scalars(select(Bug).where(Bug.scan_id == scan.id)).all()
-    return {**_scan_dict(scan), "bugs": [_bug_dict(session, bug) for bug in bugs]}
+    progress = fix_progress(session, scan.id)
+    return {**_scan_dict(scan), "bugs": [_bug_dict(session, bug) for bug in bugs], "fix_progress": progress}
 
 
 @router.get("/bugs/{bug_id}")
-def get_bug(bug_id: str, session: Session = Depends(get_session)) -> dict:
+def get_bug(bug_id: str, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
     bug = session.get(Bug, bug_id)
     if bug is None:
         raise HTTPException(404, "Bug not found.")
+    _project(session, bug.project_id, user)
     return _bug_dict(session, bug)
 
 
 @router.post("/bugs/{bug_id}/translate")
-def translate(bug_id: str, body: TranslateIn, session: Session = Depends(get_session)) -> dict:
+def translate(
+    bug_id: str, body: TranslateIn, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
     bug = session.get(Bug, bug_id)
     if bug is None:
         raise HTTPException(404, "Bug not found.")
+    _project(session, bug.project_id, user)
     if body.language == "en":
         return {"language": "en", "text": bug.student_explanation or bug.root_cause, "source": "stored"}
     stored = bug.explanation_kn if body.language == "kn" else bug.explanation_hi
@@ -285,32 +352,251 @@ def translate(bug_id: str, body: TranslateIn, session: Session = Depends(get_ses
 
 
 @router.post("/patches/{patch_id}/decision")
-def decision(patch_id: str, body: DecisionIn, session: Session = Depends(get_session)) -> dict:
+def decision(
+    patch_id: str, body: DecisionIn, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
     patch = session.get(Patch, patch_id)
     if patch is None:
         raise HTTPException(404, "Patch not found.")
+    _project(session, patch.project_id, user)
     try:
-        patch = decide_patch(session, patch, body.action, body.note)
+        result = decide_patch(
+            session,
+            patch,
+            body.action,
+            body.note,
+            user=user,
+            edited_code=body.edited_code,
+            verify_tests=body.verify_tests,
+        )
     except IngestError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
-    return _patch_dict(patch)
+    payload = _patch_dict(result["patch"])
+    payload["rolled_back"] = result["rolled_back"]
+    payload["test_summary"] = result["test_summary"]
+    return payload
+
+
+@router.post("/patches/{patch_id}/approve")
+def approve_patch(
+    patch_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    patch = session.get(Patch, patch_id)
+    if patch is None:
+        raise HTTPException(404, "Patch not found.")
+    _project(session, patch.project_id, user)
+    try:
+        result = decide_patch(session, patch, "approve", user=user, verify_tests=True)
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    payload = _patch_dict(result["patch"])
+    payload["rolled_back"] = result["rolled_back"]
+    payload["test_summary"] = result["test_summary"]
+    if result["rolled_back"]:
+        payload["message"] = "Fix was applied then auto-rolled back because tests failed."
+    else:
+        payload["message"] = "Fix approved and applied."
+    return payload
+
+
+@router.post("/patches/{patch_id}/reject")
+def reject_patch(
+    patch_id: str, body: RejectIn, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    patch = session.get(Patch, patch_id)
+    if patch is None:
+        raise HTTPException(404, "Patch not found.")
+    _project(session, patch.project_id, user)
+    try:
+        result = decide_patch(session, patch, "reject", body.note, user=user)
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    payload = _patch_dict(result["patch"])
+    payload["alternative"] = None
+    if body.try_another and body.note.strip():
+        payload["alternative"] = regenerate_fix_after_rejection(session, patch, body.note)
+    return payload
+
+
+@router.post("/patches/{patch_id}/edit")
+def edit_patch(
+    patch_id: str, body: EditIn, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    patch = session.get(Patch, patch_id)
+    if patch is None:
+        raise HTTPException(404, "Patch not found.")
+    _project(session, patch.project_id, user)
+    try:
+        result = decide_patch(
+            session,
+            patch,
+            "edit",
+            body.note,
+            user=user,
+            edited_code=body.edited_code,
+            verify_tests=body.verify_tests,
+        )
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    payload = _patch_dict(result["patch"])
+    payload["rolled_back"] = result["rolled_back"]
+    payload["test_summary"] = result["test_summary"]
+    return payload
+
+
+@router.post("/patches/{patch_id}/skip")
+def skip_patch(
+    patch_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    patch = session.get(Patch, patch_id)
+    if patch is None:
+        raise HTTPException(404, "Patch not found.")
+    _project(session, patch.project_id, user)
+    try:
+        result = decide_patch(session, patch, "skip", user=user)
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return _patch_dict(result["patch"])
+
+
+@router.post("/patches/{patch_id}/ask-ai")
+def ask_ai_about_fix(
+    patch_id: str, body: AskAiIn, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    patch = session.get(Patch, patch_id)
+    if patch is None:
+        raise HTTPException(404, "Patch not found.")
+    bug = session.get(Bug, patch.bug_id)
+    _project(session, patch.project_id, user)
+    if not settings.gemini_configured:
+        return {
+            "answer": (
+                f"This fix changes {patch.file}. "
+                f"Why it's a bug: {bug.root_cause if bug else 'see the report'}. "
+                f"What the fix does: replaces the buggy lines with a safer version. "
+                f"Your question: {body.question}"
+            ),
+            "source": "local",
+        }
+    from app.llm.gemini import GeminiError, _generate
+
+    prompt = (
+        "Answer the user's question about this proposed bug fix in clear short paragraphs.\n"
+        f"Bug: {bug.title if bug else ''}\nRoot cause: {bug.root_cause if bug else ''}\n"
+        f"Before:\n{patch.before_code}\nAfter:\n{patch.after_code}\n"
+        f"Question: {body.question}"
+    )
+    try:
+        answer = _generate(settings.gemini_model, prompt).strip()
+    except GeminiError as exc:
+        raise HTTPException(503, f"Ask AI needs Gemini. {exc}") from exc
+    return {"answer": answer, "source": "gemini"}
 
 
 @router.post("/scans/{scan_id}/apply-safe")
-def safe(scan_id: str, session: Session = Depends(get_session)) -> dict:
+def safe(
+    scan_id: str,
+    session: Session = Depends(get_session),
+    user: OptionalUser = None,
+    body: ApplySafeIn | None = None,
+) -> dict:
     scan = session.get(Scan, scan_id)
     if scan is None:
         raise HTTPException(404, "Scan not found.")
-    project = _project(session, scan.project_id)
+    project = _project(session, scan.project_id, user)
+    opts = body or ApplySafeIn()
     try:
-        return apply_safe(session, project, scan)
+        return apply_safe(session, project, scan, user=user, mode=opts.mode, dry_run=opts.dry_run)
     except IngestError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
 
 
+@router.get("/scans/{scan_id}/fix-progress")
+def scan_fix_progress(
+    scan_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    scan = session.get(Scan, scan_id)
+    if scan is None:
+        raise HTTPException(404, "Scan not found.")
+    project = _project(session, scan.project_id, user)
+    progress = fix_progress(session, scan.id)
+    scores = health_score(session, project, scan)
+    return {**progress, "health": scores}
+
+
+@router.get("/scans/{scan_id}/summary")
+def scan_summary(scan_id: str, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
+    scan = session.get(Scan, scan_id)
+    if scan is None:
+        raise HTTPException(404, "Scan not found.")
+    project = _project(session, scan.project_id, user)
+    progress = fix_progress(session, scan.id)
+    scores = health_score(session, project, scan)
+    run = session.scalar(
+        select(TestRun).where(TestRun.project_id == project.id).order_by(TestRun.created_at.desc())
+    )
+    summary = json.loads(run.summary_json or "{}") if run else {}
+    return {
+        "progress": progress,
+        "health": scores,
+        "tests_before": {
+            "generated_passed": summary.get("generated_before_passed"),
+            "existing": summary.get("existing_before"),
+        },
+        "tests_after": {
+            "generated_passed": summary.get("generated_passed"),
+            "regression_passed": summary.get("regression_passed"),
+        },
+        "download_zip": f"/api/projects/{project.id}/export/zip",
+    }
+
+
+@router.post("/projects/{project_id}/rollback-last")
+def undo_last(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    project = _project(session, project_id, user)
+    try:
+        return rollback_last(session, project, user=user)
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@router.post("/projects/{project_id}/rollback-all")
+def undo_all(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    project = _project(session, project_id, user)
+    try:
+        return rollback_all(session, project, user=user)
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@router.get("/projects/{project_id}/versions")
+def versions(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    _project(session, project_id, user)
+    return {"versions": list_versions(session, project_id)}
+
+
+@router.get("/projects/{project_id}/decision-log")
+def project_decision_log(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    _project(session, project_id, user)
+    return {"decisions": decision_log(session, project_id)}
+
+
 @router.post("/projects/{project_id}/tests", dependencies=[Depends(limit_request)])
-def start_tests(project_id: str, background: BackgroundTasks, session: Session = Depends(get_session)) -> dict:
-    project = _project(session, project_id)
+def start_tests(
+    project_id: str,
+    background: BackgroundTasks,
+    session: Session = Depends(get_session),
+    user: OptionalUser = None,
+) -> dict:
+    project = _project(session, project_id, user)
     scan = latest_scan(session, project.id)
     if scan is None:
         raise HTTPException(400, "Scan the project before running tests.")
@@ -376,8 +662,10 @@ async def stream_events(run_id: str, request: Request):
 
 
 @router.get("/projects/{project_id}/history")
-def history(project_id: str, session: Session = Depends(get_session)) -> dict:
-    project = _project(session, project_id)
+def history(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    project = _project(session, project_id, user)
     events = session.scalars(
         select(HistoryEvent).where(HistoryEvent.project_id == project.id).order_by(HistoryEvent.id)
     ).all()
@@ -389,12 +677,15 @@ def history(project_id: str, session: Session = Depends(get_session)) -> dict:
             for event in events
         ],
         "scans": [_scan_dict(scan) for scan in scans],
+        "decisions": decision_log(session, project.id),
     }
 
 
 @router.get("/projects/{project_id}/dashboard")
-def dashboard(project_id: str, session: Session = Depends(get_session)) -> dict:
-    project = _project(session, project_id)
+def dashboard(
+    project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
+) -> dict:
+    project = _project(session, project_id, user)
     scan = latest_scan(session, project.id)
     bugs = []
     if scan:
@@ -422,22 +713,24 @@ def dashboard(project_id: str, session: Session = Depends(get_session)) -> dict:
                 "category": bug.category,
                 "needs_human_review": bug.needs_human_review,
                 "file": bug.file,
+                "risk_level": risk_level(bug),
             }
             for bug in bugs
         ],
+        "health": health_score(session, project, scan),
     }
 
 
 @router.get("/projects/{project_id}/export/json")
-def export_json(project_id: str, session: Session = Depends(get_session)):
-    project = _project(session, project_id)
+def export_json(project_id: str, session: Session = Depends(get_session), user: OptionalUser = None):
+    project = _project(session, project_id, user)
     payload = report_payload(session, project, latest_scan(session, project.id))
     return Response(content=json.dumps(payload, indent=2), media_type="application/json")
 
 
 @router.get("/projects/{project_id}/export/pdf")
-def export_pdf(project_id: str, session: Session = Depends(get_session)):
-    project = _project(session, project_id)
+def export_pdf(project_id: str, session: Session = Depends(get_session), user: OptionalUser = None):
+    project = _project(session, project_id, user)
     payload = report_payload(session, project, latest_scan(session, project.id))
     return Response(
         content=render_pdf(payload),
@@ -447,8 +740,8 @@ def export_pdf(project_id: str, session: Session = Depends(get_session)):
 
 
 @router.get("/projects/{project_id}/export/zip")
-def export_zip(project_id: str, session: Session = Depends(get_session)):
-    project = _project(session, project_id)
+def export_zip(project_id: str, session: Session = Depends(get_session), user: OptionalUser = None):
+    project = _project(session, project_id, user)
     return Response(
         content=zip_workspace(project),
         media_type="application/zip",

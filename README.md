@@ -1,22 +1,26 @@
-# AutoPatch
+# Fixpilot
 
-Autonomous bug detection and repair for SAPTHAHACKS'26, Problem Statement 02.
+Autonomous bug detection and repair. Find it. Fix it. Prove it.
 
-A developer uploads Python code. AutoPatch scans it with real static tools and, when a key is set, Google Gemini. Each bug report says what triggers the bug and why. A minimal patch is proposed as a unified diff and a side-by-side before/after. Tests run in a sandbox before and after the patch. Nothing is written into the project until a person accepts it.
+A developer uploads Python code. Fixpilot scans it with real static tools and, when a key is set, Google Gemini. Each bug report says what triggers the bug and why. A minimal patch is proposed as a unified diff and a side-by-side before/after. Tests run in a sandbox before and after the patch. Nothing is written into the project until a person accepts it.
 
 ## Problem
 
-Students and junior developers can see that a program is wrong and still not know which line is at fault, why that line fails, or whether a fix broke something else. The marks calculator in the brief is the running example: it accepts negative marks and marks over 100, and it crashes when the list is empty. AutoPatch is built to catch that class of mistake, explain it in plain language, patch only the lines that need to change, and show the test that proves it.
+Students and junior developers can see that a program is wrong and still not know which line is at fault, why that line fails, or whether a fix broke something else. The marks calculator in the brief is the running example: it accepts negative marks and marks over 100, and it crashes when the list is empty. Fixpilot is built to catch that class of mistake, explain it in plain language, patch only the lines that need to change, and show the test that proves it.
 
 ## Solution
 
 Five steps, in the sidebar:
 
 1. **Upload** a file, a zip, or a public GitHub URL. The app shows the file tree, languages, dependencies, important files, and an import graph.
-2. **Scan** with two layers. Layer 1 is pylint, pyflakes, bandit, and a secret scanner. Layer 2 is Gemini (`GEMINI_API_KEY`), with a second model, retries, and a timeout. Findings are merged. If Gemini is missing, bundled samples still scan and show clearly labelled cached model notes.
+2. **Scan** with two layers. Layer 1 is pylint, pyflakes, bandit, and a secret scanner. Layer 2 is Gemini (`GEMINI_API_KEY`), with a second model, retries, and a timeout. Findings are merged. If Gemini is missing, the AI engine stays on standby and static analysis plus project knowledge continue without a banner.
 3. **Explain** the root cause: the input that triggers the bug, and why the code does the wrong thing. Student mode shortens that. Kannada and Hindi are available for the bundled rules, and via Gemini when a key is set.
 4. **Fix** with a small patch. The screen shows a unified diff and the before (red) and after (green) code. Accept or reject is required. "Apply all safe fixes" only applies high-confidence patches whose tests passed.
 5. **Test** existing tests, then generated edge cases (normal, minimum, maximum, invalid), before the patch and after it, then the full suite as a regression check. Progress streams over server-sent events. The code runs in a temp directory with CPU, memory, file-size, and wall-clock limits.
+
+### AI Agent Assistant
+
+**Repairo Assistant** (`/p/{projectId}/assistant`) is a project-scoped chat. The left sidebar lists past conversations (stored per user / Coder ID). The right panel shows the file tree and live bug list — clicking a bug attaches it as context. Messages stream token-by-token over SSE; tool steps appear as small cards (scan, explain, propose fix, run tests, show diff, search). When the agent proposes a fix, a diff card offers Approve / Reject / Edit and plugs into the same permission and audit flow as the Fix page — nothing is written without Approve. Quick-prompt chips and English / Kannada / Hindi are supported. Secrets are redacted before anything is sent to Gemini; if Gemini is down, answers fall back silently to the static findings.
 
 Every bug report has the same six sections: bug details, root cause, suggested patch, test results, severity and confidence, and change history. Low confidence is marked "needs human review".
 
@@ -40,6 +44,9 @@ Every bug report has the same six sections: bug details, root cause, suggested p
 | Severity, impact, calibrated confidence, "needs human review" | `catalog.py` (`REVIEW_BELOW = 0.8`), bug report, dashboard |
 | Dashboard charts | Dashboard page, recharts |
 | Accept or reject every patch; nothing applied without approval | `services.decide_patch`, Fix page |
+| Auto-Correct Mode (ask / auto-safe), rollback, decision log | Fix page, `approve`/`reject`/`edit`/`rollback-*`, `workspace_versions` |
+| Login, Coder ID, JWT, guest mode, per-user history | `auth.py`, `auth_routes.py`, Login/Register/Profile |
+| Repairo Assistant chat, tools, SSE, secret redaction | `agent/`, `assistant_routes.py`, Assistant page |
 | "Apply all safe fixes" only for high-confidence patches whose tests passed | `services.apply_safe` |
 | SQLAlchemy, SQLite default, Postgres via `DATABASE_URL` | `backend/app/db.py`, `models.py` |
 | History of scans, bugs, patches, tests, decisions | `history_events` table, History page |
@@ -49,7 +56,7 @@ Every bug report has the same six sections: bug details, root cause, suggested p
 | 5–8 buggy projects with ground truth | `samples/` (8 projects, 12 bugs) |
 | Measured detection, fix success, false positives | `benchmark/run_benchmark.py`, `benchmark/results/latest.json`, Benchmark page |
 | One-click demo from the home page | Home page sample cards, `?auto=1` starts the scan |
-| Demo mode when Gemini is missing or fails | `analysis/pipeline.py`, `samples/cache.json` |
+| Silent AI standby when Gemini is missing or fails | `analysis/pipeline.py`, `samples/cache.json` |
 | Upload size limits, rate limiting, validation, structured logs | `ingest/files.py`, `limiter.py`, `logging_config.py` |
 | pytest, frontend tests, GitHub Actions | `backend/tests/`, `frontend/src/**/*.test.ts(x)`, `.github/workflows/ci.yml` |
 | One Dockerfile, Render free tier | `Dockerfile`, `render.yaml` |
@@ -98,9 +105,24 @@ Projects: marks calculator, bank balance, login SQL injection, off-by-one, divis
 
 Style notes from pylint (a long line, a suggestion to use `enumerate`) are shown in the UI and are not counted as false-positive bugs. That choice is written in the benchmark method string.
 
+## Authentication & Coder ID
+
+Accounts are optional. Judges can use **Continue without account** on the Login page; guest projects are not linked to a durable profile. Signed-in users get a unique **Coder ID** like `AP-CODER-7F3K2`.
+
+- Register / login: `POST /api/auth/register`, `POST /api/auth/login` (email **or** Coder ID + password). Passwords are bcrypt-hashed; JWT access tokens last 24h (`JWT_SECRET`).
+- `GET /api/auth/me` returns profile stats (scans, bugs found, patches accepted/rejected, member since). `POST /api/auth/logout` tells the client to discard the token.
+- Every project, scan, and patch decision stores `user_id` when you are logged in. History and project lists show only your data; admins see everything.
+- Login attempts are rate-limited. Plain passwords are never stored or logged.
+
+## Auto-Correct Mode (Human-in-the-Loop)
+
+AI and rule-based patches are proposals until a person decides. That matters because a “safe-looking” rewrite can still break auth, money, or tests.
+
+On the Fix page, choose **Manual**, **Ask Every Fix** (default), or **Auto for Safe Fixes** (confidence ≥ 90%, risk = safe, tests passing). Each fix shows a permission card: diff, why/what, risk badge, and Approve / Reject / Edit / Skip / Ask AI. Approved fixes write only the working copy; the original upload stays intact. After each approve, tests re-run — failure triggers auto-rollback. Undo last / Rollback all walk a version timeline (v0 → v1 → …). Rejections with a reason can ask Gemini for an alternative. The Decision Log and export PDF/JSON record every choice against your Coder ID.
+
 ## Tech stack
 
-- Backend: Python 3.12, FastAPI, SQLAlchemy, pydantic, pylint, pyflakes, bandit, httpx, fpdf2, pytest
+- Backend: Python 3.12, FastAPI, SQLAlchemy, pydantic, passlib/bcrypt, python-jose, pylint, pyflakes, bandit, httpx, fpdf2, pytest
 - Model: Google Gemini (`gemini-2.5-flash`, fallback `gemini-2.0-flash`)
 - Frontend: React, Vite, TypeScript, Tailwind, recharts
 - Data: SQLite by default, Postgres when `DATABASE_URL` is set
@@ -112,7 +134,8 @@ Style notes from pylint (a long line, a suggestion to use `enumerate`) are shown
 - GitHub imports accept only `https://github.com/owner/repo`. The download is capped at 8 MB. No credentials are sent.
 - User code runs with `subprocess` in a temp copy. The child does not receive `GEMINI_API_KEY`, `DATABASE_URL`, or other secret environment variables. CPU, address-space, file-size, and wall-clock limits are set. Output is truncated.
 - Network is not a separate namespace. Isolating the network with `unshare` needs privileges this service does not assume. The child still has no API keys.
-- Patches are not written until Accept, or until "Apply all safe fixes" after tests have passed.
+- Patches are not written until Approve/Accept, or until "Apply all safe fixes" after tests have passed. Auto-Correct Mode asks before each change and rolls back if post-fix tests fail.
+- Set a strong `JWT_SECRET` in production. Auth tokens are Bearer JWTs stored in the browser.
 - Secrets found in a scan are stored as findings. Do not upload a real production secret.
 
 ## Limitations
@@ -141,7 +164,7 @@ cd ../backend
 
 Open http://127.0.0.1:8000 . For frontend hot reload, run `npm run dev` in `frontend/` and open http://127.0.0.1:5173 . The dev server proxies `/api` to port 8000.
 
-Copy `.env.example` to `.env` if you want Gemini. Leave `GEMINI_API_KEY` empty for demo mode.
+Copy `.env.example` to `.env` if you want Gemini. Leave `GEMINI_API_KEY` empty to run with static analysis and project knowledge (AI engine: standby).
 
 ```bash
 python benchmark/run_benchmark.py
@@ -149,13 +172,18 @@ python benchmark/run_benchmark.py
 
 ## Deploy on Render
 
-The repo includes `render.yaml` and a Dockerfile that builds the frontend and serves it from FastAPI. Create a Render web service from this repo (free plan). Set `GEMINI_API_KEY` in the dashboard if you want live model findings. Set `DATABASE_URL` only if you attach Postgres; otherwise the service uses SQLite on local disk, which resets when the free instance sleeps. The health check is `/api/health`.
+The repo includes `render.yaml` and a Dockerfile that builds the frontend and serves it from FastAPI. Create a Render web service from this repo (free plan). Set `GEMINI_API_KEY` and `JWT_SECRET` in the dashboard. Set `DATABASE_URL` only if you attach Postgres; otherwise the service uses SQLite on local disk, which resets when the free instance sleeps. The health check is `/api/health`.
 
 ## API
 
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/api/health` | Liveness, whether Gemini is configured |
+| POST | `/api/auth/register` | Create account; returns Coder ID + JWT |
+| POST | `/api/auth/login` | Email or Coder ID + password |
+| GET | `/api/auth/me` | Profile + stats (Bearer token) |
+| POST | `/api/auth/logout` | Client discards token |
+| GET | `/api/auth/history` | Projects owned by the signed-in user |
 | GET | `/api/samples` | Bundled demos |
 | POST | `/api/projects/upload` | File or zip |
 | POST | `/api/projects/github` | `{ "url": "https://github.com/owner/repo" }` |
@@ -165,12 +193,21 @@ The repo includes `render.yaml` and a Dockerfile that builds the frontend and se
 | GET | `/api/bugs/{id}` | Full bug report |
 | POST | `/api/bugs/{id}/translate` | `{ "language": "kn" }` or `"hi"` |
 | POST | `/api/patches/{id}/decision` | `{ "action": "accept" }` or `"reject"` |
-| POST | `/api/scans/{id}/apply-safe` | High-confidence patches whose tests passed |
+| POST | `/api/patches/{id}/approve` | Approve + re-test; auto-rollback on failure |
+| POST | `/api/patches/{id}/reject` | Reject; optional reason + try-another |
+| POST | `/api/patches/{id}/edit` | Apply edited after-code |
+| POST | `/api/patches/{id}/skip` | Skip for now |
+| POST | `/api/patches/{id}/ask-ai` | Chat about one fix |
+| POST | `/api/scans/{id}/apply-safe` | High-confidence patches whose tests passed (`dry_run` supported) |
+| POST | `/api/projects/{id}/rollback-last` | Undo last applied fix |
+| POST | `/api/projects/{id}/rollback-all` | Restore original upload (v0) |
+| GET | `/api/projects/{id}/versions` | Version timeline |
+| GET | `/api/projects/{id}/decision-log` | Audit trail of patch decisions |
 | POST | `/api/projects/{id}/tests` | Start a proof run |
 | GET | `/api/test-runs/{id}/events` | Server-sent events |
 | GET | `/api/projects/{id}/history` | Change history |
 | GET | `/api/projects/{id}/dashboard` | Counts for the charts |
-| GET | `/api/projects/{id}/export/json` | Report JSON |
+| GET | `/api/projects/{id}/export/json` | Report JSON (includes decision log) |
 | GET | `/api/projects/{id}/export/pdf` | Report PDF |
 | GET | `/api/projects/{id}/export/zip` | Workspace zip |
 | POST | `/api/benchmark/run` | Re-measure the samples |

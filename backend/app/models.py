@@ -1,4 +1,4 @@
-"""Tables for projects, scans, bugs, patches, test runs and decisions."""
+"""Tables for users, projects, scans, bugs, patches, test runs and decisions."""
 
 from __future__ import annotations
 
@@ -14,6 +14,21 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    coder_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(200))
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(20), default="student")  # student | developer | admin
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    projects: Mapped[list[Project]] = relationship(back_populates="owner")
+
+
 class Project(Base):
     __tablename__ = "projects"
 
@@ -22,6 +37,8 @@ class Project(Base):
     source_type: Mapped[str] = mapped_column(String(20))
     sample_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     github_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_guest: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     languages_json: Mapped[str] = mapped_column(Text, default="[]")
     dependencies_json: Mapped[str] = mapped_column(Text, default="[]")
@@ -30,6 +47,7 @@ class Project(Base):
     tree_json: Mapped[str] = mapped_column(Text, default="[]")
     file_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    owner: Mapped[User | None] = relationship(back_populates="projects")
     scans: Mapped[list[Scan]] = relationship(back_populates="project")
 
 
@@ -38,6 +56,7 @@ class Scan(Base):
 
     id: Mapped[str] = mapped_column(String(16), primary_key=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), default="queued")
     mode: Mapped[str] = mapped_column(String(20), default="live")
     error: Mapped[str] = mapped_column(Text, default="")
@@ -87,11 +106,12 @@ class Patch(Base):
     id: Mapped[str] = mapped_column(String(16), primary_key=True)
     bug_id: Mapped[str] = mapped_column(ForeignKey("bugs.id", ondelete="CASCADE"), index=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     file: Mapped[str] = mapped_column(String(300))
     diff: Mapped[str] = mapped_column(Text, default="")
     before_code: Mapped[str] = mapped_column(Text, default="")
     after_code: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default="proposed")
+    status: Mapped[str] = mapped_column(String(20), default="proposed")  # proposed|applied|rejected|skipped
     source: Mapped[str] = mapped_column(String(40), default="rule")
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -129,8 +149,24 @@ class Decision(Base):
     id: Mapped[str] = mapped_column(String(16), primary_key=True)
     patch_id: Mapped[str] = mapped_column(ForeignKey("patches.id", ondelete="CASCADE"), index=True)
     project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
-    action: Mapped[str] = mapped_column(String(20))
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(40))
+    # approved | rejected | edited | skipped | auto-applied | rolled_back
     note: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class WorkspaceVersion(Base):
+    """Version timeline: v0 = original upload, v1+ after each approved fix."""
+
+    __tablename__ = "workspace_versions"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    version: Mapped[int] = mapped_column(Integer, default=0)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    patch_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    path: Mapped[str] = mapped_column(String(400), default="")  # relative to project root
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -143,3 +179,33 @@ class HistoryEvent(Base):
     kind: Mapped[str] = mapped_column(String(40))
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Conversation(Base):
+    """Repairo Assistant chat thread, scoped to a project and optional user."""
+
+    __tablename__ = "conversations"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(200), default="New chat")
+    language: Mapped[str] = mapped_column(String(8), default="en")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    messages: Mapped[list[ChatMessage]] = relationship(back_populates="conversation", cascade="all, delete-orphan")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(20))  # user | assistant | tool
+    content: Mapped[str] = mapped_column(Text, default="")
+    tool_steps_json: Mapped[str] = mapped_column(Text, default="[]")
+    patches_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+    conversation: Mapped[Conversation] = relationship(back_populates="messages")

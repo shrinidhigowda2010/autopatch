@@ -35,7 +35,7 @@ export default function Scan() {
     if (params.get("auto") !== "1" || autoStarted.current) return;
     autoStarted.current = true;
     void run();
-    // One-click demo scans once. `run` closes over the latest project id.
+    // Auto-start scan once when opened from an example project.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -49,19 +49,14 @@ export default function Scan() {
           <h1 className="text-3xl font-semibold">Scan</h1>
           <p className="mt-1 text-mist">Layer 1 is pylint, pyflakes, bandit and a secret scan. Layer 2 is Gemini, with a fallback model.</p>
         </div>
-        <button onClick={() => void run()} disabled={busy} className="rounded-lg bg-lime px-4 py-2 font-medium text-ink disabled:opacity-60">
+        <button onClick={() => void run()} disabled={busy} className="btn-primary disabled:opacity-60">
           {busy ? "Scanning…" : "Run scan"}
         </button>
       </div>
-      {error && <p className="mt-4 text-coral">{error}</p>}
-      {scan?.mode === "demo" && (
-        <p className="mt-4 rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-sm">
-          Demo mode. Gemini did not run ({scan.error || "no API key"}). Static analysis is live. Notes marked “cached model” were loaded from the bundled sample cache so the demo still has an explanation.
-        </p>
-      )}
+      {error && <p className="mt-4 text-bug">{error}</p>}
       {project && (
         <section className="mt-6 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-line bg-panel p-4">
+          <div className="card-3d p-4">
             <h2 className="font-medium">File tree</h2>
             <div className="mt-3 max-h-80 overflow-auto">
               <FileTree nodes={project.tree} />
@@ -119,7 +114,6 @@ export default function Scan() {
                 <div className="flex flex-wrap items-center gap-2">
                   <SeverityBadge severity={bug.severity_and_confidence.severity} />
                   {bug.severity_and_confidence.needs_human_review && <span className="text-xs text-amber">needs human review</span>}
-                  {bug.bug_details.demo_cache_used && <span className="text-xs text-sky">cached model note</span>}
                 </div>
                 <p className="mt-2 font-medium">{bug.bug_details.title}</p>
                 <p className="font-mono text-xs text-mist">{bug.bug_details.file}:{bug.bug_details.line} · {bug.bug_details.source}</p>

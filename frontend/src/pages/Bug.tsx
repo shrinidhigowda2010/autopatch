@@ -17,22 +17,32 @@ export default function BugPage() {
     api<Bug>(`/api/bugs/${bugId}`).then(setBug).catch((err: Error) => setError(err.message));
   }, [bugId]);
 
-  if (error) return <p className="text-coral">{error}</p>;
+  if (error) return <p className="text-bug">{error}</p>;
   if (!bug) return <p className="text-mist">Loading the bug report…</p>;
   const patch = bug.suggested_patch[0];
   const confidence = bug.severity_and_confidence;
 
   return (
     <article className="mx-auto max-w-3xl space-y-6">
-      <Link to={`/p/${projectId}/explain`} className="text-sm text-lime">Back to explanations</Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link to={`/p/${projectId}/explain`} className="text-sm font-medium text-ink underline-offset-2 hover:underline">
+          Back to explanations
+        </Link>
+        <Link
+          to={`/p/${projectId}/assistant?bug=${bug.id}`}
+          className="btn-secondary px-3 py-1.5 text-sm"
+        >
+          Discuss with Assistant
+        </Link>
+      </div>
       <section>
         <h2 className="text-sm uppercase tracking-wide text-mist">Bug details</h2>
         <h1 className="mt-1 text-3xl font-semibold">{bug.bug_details.title}</h1>
         <p className="mt-2 font-mono text-sm text-mist">{bug.bug_details.file}:{bug.bug_details.line} · {bug.bug_details.symbol} · {bug.bug_details.source}</p>
         <p className="mt-3">{bug.bug_details.description}</p>
-        <pre className="mt-3 overflow-auto rounded-lg bg-ink p-3 font-mono text-xs">{bug.bug_details.snippet}</pre>
-        {bug.bug_details.demo_cache_used && bug.bug_details.cached_root_cause && (
-          <p className="mt-3 rounded-lg border border-sky/40 bg-sky/10 p-3 text-sm">Cached model note: {bug.bug_details.cached_root_cause}</p>
+        <pre className="mt-3 overflow-auto rounded-2xl border border-line bg-cream p-3 font-mono text-xs">{bug.bug_details.snippet}</pre>
+        {bug.bug_details.cached_root_cause && (
+          <p className="mt-3 rounded-2xl border border-line bg-panel p-3 text-sm text-mist">{bug.bug_details.cached_root_cause}</p>
         )}
       </section>
       <section>

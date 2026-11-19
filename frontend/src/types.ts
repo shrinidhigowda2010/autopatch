@@ -64,6 +64,7 @@ export interface Bug {
     impact: string;
     needs_human_review: boolean;
   };
+  risk_level?: "safe" | "review carefully" | "risky" | string;
   change_history: { kind: string; message: string; at: string }[];
 }
 

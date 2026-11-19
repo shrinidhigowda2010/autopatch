@@ -1,5 +1,9 @@
-import { Link, Outlet, useLocation, useParams } from "react-router-dom";
-import { createContext, useContext, useState } from "react";
+import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { createContext, useContext, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { useAuth } from "../auth";
+import AiStatus from "./AiStatus";
+import Logo from "./Logo";
 
 interface Prefs {
   studentMode: boolean;
@@ -28,81 +32,172 @@ const steps = [
 ] as const;
 
 function navClass(active: boolean): string {
-  return `rounded-lg px-3 py-2 text-sm ${active ? "bg-lime text-ink" : "text-paper hover:bg-white/5"}`;
+  return `rounded-2xl px-3 py-2 text-sm transition ${active ? "bg-ink text-cream shadow-emboss" : "text-ink hover:bg-panel"}`;
 }
 
 export default function Shell() {
-  const { projectId } = useParams();
+  const params = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, isGuest, initials, logout } = useAuth();
   const [studentMode, setStudentMode] = useState(false);
   const [language, setLanguage] = useState<"en" | "kn" | "hi">("en");
+  const [menuOpen, setMenuOpen] = useState(false);
+  // Pathless layout routes sometimes omit child params — also read from the URL.
+  const projectId = useMemo(() => {
+    if (params.projectId) return params.projectId;
+    const match = location.pathname.match(/^\/p\/([^/]+)/);
+    return match?.[1];
+  }, [params.projectId, location.pathname]);
   const base = projectId ? `/p/${projectId}` : "";
+  const isAuthPage = location.pathname === "/login" || location.pathname === "/register";
+  const assistantTo = projectId ? `${base}/assistant` : "/upload";
 
   function stepActive(path: string): boolean {
     if (projectId) return location.pathname.startsWith(`${base}/${path}`);
     return path === "upload" && location.pathname === "/upload";
   }
 
+  async function onLogout() {
+    setMenuOpen(false);
+    await logout();
+    navigate("/login");
+  }
+
   return (
     <PrefsContext.Provider value={{ studentMode, setStudentMode, language, setLanguage }}>
-      <div className="min-h-screen md:grid md:grid-cols-[240px_1fr]">
-        <aside className="border-b border-line bg-panel/80 px-4 py-5 md:min-h-screen md:border-b-0 md:border-r">
-          <Link to="/" className="block">
-            <p className="font-mono text-xs uppercase tracking-[0.2em] text-lime">SAPTHAHACKS'26</p>
-            <p className="mt-1 text-2xl font-semibold">AutoPatch</p>
-          </Link>
-          <p className="mt-2 text-sm text-mist">Find the bug. Explain it. Patch only the lines that need it. Prove it with a test.</p>
-          <nav className="mt-6 flex gap-2 overflow-x-auto md:flex-col">
-            {steps.map(([path, label], index) => (
+      <div className={`min-h-screen ${isAuthPage ? "" : "md:grid md:grid-cols-[260px_1fr]"}`}>
+        {!isAuthPage && (
+          <aside className="border-b border-line bg-panel/90 px-5 py-6 md:min-h-screen md:border-b-0 md:border-r">
+            <Link to="/" className="block">
+              <Logo className="h-10 w-auto" />
+            </Link>
+            <p className="mt-3 text-sm text-mist">Find it. Fix it. Prove it.</p>
+            <nav className="mt-8 flex gap-2 overflow-x-auto md:flex-col">
+              {steps.map(([path, label], index) => (
+                <Link
+                  key={path}
+                  to={projectId ? `${base}/${path}` : "/upload"}
+                  aria-current={stepActive(path) ? "page" : undefined}
+                  className={navClass(stepActive(path))}
+                >
+                  <span className="mr-2 font-mono text-xs opacity-60">0{index + 1}</span>
+                  {label}
+                </Link>
+              ))}
+              <div className="my-2 hidden h-px bg-line md:block" />
               <Link
-                key={path}
-                to={projectId ? `${base}/${path}` : "/upload"}
-                aria-current={stepActive(path) ? "page" : undefined}
-                className={navClass(stepActive(path))}
+                to={assistantTo}
+                className={navClass(Boolean(projectId) && location.pathname.includes("/assistant"))}
               >
-                <span className="mr-2 font-mono text-xs opacity-70">0{index + 1}</span>
-                {label}
+                Repairo Assistant
               </Link>
-            ))}
-            <div className="my-2 hidden h-px bg-line md:block" />
-            <Link to={projectId ? `${base}/dashboard` : "/upload"} aria-current={projectId && location.pathname.startsWith(`${base}/dashboard`) ? "page" : undefined} className={navClass(Boolean(projectId) && location.pathname.startsWith(`${base}/dashboard`))}>
-              Dashboard
-            </Link>
-            <Link to={projectId ? `${base}/history` : "/upload"} aria-current={projectId && location.pathname.startsWith(`${base}/history`) ? "page" : undefined} className={navClass(Boolean(projectId) && location.pathname.startsWith(`${base}/history`))}>
-              History
-            </Link>
-            <Link to="/benchmark" aria-current={location.pathname.startsWith("/benchmark") ? "page" : undefined} className={navClass(location.pathname.startsWith("/benchmark"))}>
-              Benchmark
-            </Link>
-          </nav>
-        </aside>
-        <div>
-          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
-            <p className="text-sm text-mist">{projectId ? `Project ${projectId}` : "No project loaded"}</p>
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={studentMode}
-                  onChange={(event) => setStudentMode(event.target.checked)}
-                />
-                Student mode
-              </label>
-              <select
-                aria-label="Explanation language"
-                value={language}
-                onChange={(event) => setLanguage(event.target.value as "en" | "kn" | "hi")}
-                className="rounded-md border border-line bg-ink px-2 py-1"
+              <Link
+                to={projectId ? `${base}/dashboard` : "/upload"}
+                className={navClass(Boolean(projectId) && location.pathname.startsWith(`${base}/dashboard`))}
               >
-                <option value="en">English</option>
-                <option value="kn">ಕನ್ನಡ</option>
-                <option value="hi">हिन्दी</option>
-              </select>
+                Dashboard
+              </Link>
+              <Link
+                to={projectId ? `${base}/history` : "/upload"}
+                className={navClass(Boolean(projectId) && location.pathname.startsWith(`${base}/history`))}
+              >
+                History
+              </Link>
+              {projectId && (
+                <Link to={`${base}/decisions`} className={navClass(location.pathname.startsWith(`${base}/decisions`))}>
+                  Decision Log
+                </Link>
+              )}
+              <Link to="/benchmark" className={navClass(location.pathname.startsWith("/benchmark"))}>
+                Benchmark
+              </Link>
+            </nav>
+            <div className="mt-8 hidden md:block">
+              <AiStatus />
             </div>
-          </header>
-          <main className="px-5 py-6">
-            <Outlet />
+          </aside>
+        )}
+        <div className="flex min-h-screen flex-col">
+          {!isAuthPage && (
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+              <p className="text-sm text-mist">{projectId ? `Project ${projectId}` : "No project loaded"}</p>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <label className="flex items-center gap-2 text-mist">
+                  <input
+                    type="checkbox"
+                    checked={studentMode}
+                    onChange={(event) => setStudentMode(event.target.checked)}
+                  />
+                  Student mode
+                </label>
+                <select
+                  aria-label="Explanation language"
+                  value={language}
+                  onChange={(event) => setLanguage(event.target.value as "en" | "kn" | "hi")}
+                  className="rounded-xl border border-line bg-panel px-2 py-1.5 text-ink"
+                >
+                  <option value="en">English</option>
+                  <option value="kn">ಕನ್ನಡ</option>
+                  <option value="hi">हिन्दी</option>
+                </select>
+
+                {user ? (
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setMenuOpen((open) => !open)}
+                      className="flex items-center gap-2 rounded-2xl border border-line bg-panel px-2 py-1 shadow-emboss"
+                    >
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-xs font-semibold text-cream">
+                        {initials}
+                      </span>
+                      <span className="hidden font-mono text-xs text-mist sm:inline">{user.coder_id}</span>
+                    </button>
+                    {menuOpen && (
+                      <div className="absolute right-0 z-40 mt-2 w-48 rounded-2xl border border-line bg-panel py-1 shadow-card">
+                        <Link to="/profile" onClick={() => setMenuOpen(false)} className="block px-3 py-2 hover:bg-cream">
+                          Profile
+                        </Link>
+                        <Link to="/my-history" onClick={() => setMenuOpen(false)} className="block px-3 py-2 hover:bg-cream">
+                          My History
+                        </Link>
+                        <button type="button" onClick={() => void onLogout()} className="block w-full px-3 py-2 text-left hover:bg-cream">
+                          Logout
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {isGuest && <span className="rounded-xl border border-line px-2 py-1 text-xs text-mist">Guest</span>}
+                    <Link to="/login" className="btn-secondary px-3 py-1.5 text-sm">
+                      Sign in
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </header>
+          )}
+          <main className={`flex-1 px-5 py-6 ${isAuthPage ? "px-4" : ""}`}>
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={location.pathname}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.28, ease: "easeOut" }}
+                className="page-enter"
+              >
+                <Outlet />
+              </motion.div>
+            </AnimatePresence>
           </main>
+          {!isAuthPage && (
+            <footer className="border-t border-line px-5 py-3 md:hidden">
+              <AiStatus />
+            </footer>
+          )}
         </div>
       </div>
     </PrefsContext.Provider>

@@ -49,8 +49,8 @@ export default function TestPage() {
   }
 
   const tone: Record<string, string> = {
-    pass: "text-good",
-    fail: "text-coral",
+    pass: "text-fixed",
+    fail: "text-bug",
     info: "text-paper",
   };
 
@@ -58,13 +58,13 @@ export default function TestPage() {
     <div className="mx-auto max-w-3xl">
       <h1 className="text-3xl font-semibold">Test</h1>
       <p className="mt-2 text-mist">
-        Existing tests run first. Then AutoPatch writes edge-case tests — a normal value, a minimum, a maximum, and an invalid value —
+        Existing tests run first. Then Fixpilot writes edge-case tests — a normal value, a minimum, a maximum, and an invalid value —
         and runs them before and after the patch. The full suite runs again as a regression check. The program runs in a temp folder with time and memory limits.
       </p>
-      <button onClick={() => void start()} className="mt-5 rounded-lg bg-lime px-4 py-2 font-medium text-ink">
+      <button onClick={() => void start()} className="mt-5 btn-primary">
         {status === "queued" || status === "running" ? "Running…" : "Run before and after"}
       </button>
-      {error && <p className="mt-4 text-coral">{error}</p>}
+      {error && <p className="mt-4 text-bug">{error}</p>}
       <ol className="mt-6 space-y-2">
         {events.map((event, index) => (
           <li key={event.id ?? index} className={tone[event.status] || "text-paper"}>
@@ -77,7 +77,7 @@ export default function TestPage() {
           {(["existing_before", "generated_before", "generated_after", "regression_after"] as const).map((key) => (
             <div key={key} className="rounded-xl border border-line bg-panel p-3">
               <p className="text-sm font-medium">{key.replaceAll("_", " ")}</p>
-              <p className={summary[key]?.passed ? "text-good" : "text-coral"}>{summary[key]?.passed ? "passed" : "failed"}</p>
+              <p className={summary[key]?.passed ? "text-fixed" : "text-bug"}>{summary[key]?.passed ? "passed" : "failed"}</p>
               {summary[key]?.stdout && <pre className="mt-2 max-h-32 overflow-auto font-mono text-xs text-mist">{summary[key]?.stdout}</pre>}
             </div>
           ))}

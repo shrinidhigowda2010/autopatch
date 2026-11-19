@@ -1,4 +1,4 @@
-"""AutoPatch web service. The API and, when built, the React app live here."""
+"""Fixpilot web service. The API and, when built, the React app live here."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app import __version__
+from app.api.assistant_routes import router as assistant_router
+from app.api.auth_routes import router as auth_router
 from app.api.routes import router
 from app.config import settings
 from app.db import init_db
@@ -25,16 +27,18 @@ DIST = settings.repo_root / "frontend" / "dist"
 async def lifespan(_app: FastAPI):
     setup_logging()
     init_db()
-    log.info("autopatch ready")
+    log.info("fixpilot ready")
     yield
 
 
 app = FastAPI(
-    title="AutoPatch",
+    title="Fixpilot",
     version=__version__,
-    summary="Find a bug, explain it, patch it, and prove the patch with tests.",
+    summary="Find it. Fix it. Prove it.",
     lifespan=lifespan,
 )
+app.include_router(auth_router)
+app.include_router(assistant_router)
 app.include_router(router)
 
 
@@ -67,29 +71,54 @@ async def unexpected(_request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Something went wrong while handling that request."})
 
 
-def _frontend_file(full_path: str) -> Path | None:
+def _dist_file(full_path: str) -> Path | None:
     if not DIST.is_dir():
         return None
     candidate = (DIST / full_path).resolve()
     if str(candidate).startswith(str(DIST.resolve())) and candidate.is_file():
         return candidate
+    return None
+
+
+def _spa_index() -> Path | None:
     index = DIST / "index.html"
     return index if index.is_file() else None
 
 
+def _file_response(path: Path, *, cache: bool) -> FileResponse:
+    headers = {}
+    if not cache:
+        # Always revalidate the shell so rebuilds do not leave a blank page
+        # pointing at deleted hashed assets.
+        headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    else:
+        headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return FileResponse(path, headers=headers)
+
+
 @app.get("/", include_in_schema=False)
 def home():
-    page = _frontend_file("index.html")
+    page = _spa_index()
     if page:
-        return FileResponse(page)
-    return {"name": "AutoPatch", "docs": "/docs", "health": "/api/health"}
+        return _file_response(page, cache=False)
+    return {"name": "Fixpilot", "docs": "/docs", "health": "/api/health"}
 
 
 @app.get("/{full_path:path}", include_in_schema=False)
 def frontend(full_path: str):
     if full_path.startswith("api"):
         raise HTTPException(404, "Not found.")
-    page = _frontend_file(full_path)
-    if page is None:
+    page = _dist_file(full_path)
+    if page is not None:
+        # Hashed build assets can be cached; everything else revalidates.
+        is_asset = full_path.startswith("assets/")
+        return _file_response(page, cache=is_asset)
+    # Missing hashed assets must 404 (not return index.html), or the browser
+    # tries to execute HTML as a module and the app stays blank.
+    name = Path(full_path).name
+    if "." in name and not name.endswith(".html"):
+        raise HTTPException(404, "Not found.")
+    index = _spa_index()
+    if index is None:
         raise HTTPException(404, "Frontend is not built. Run the API docs at /docs.")
-    return FileResponse(page)
+    return _file_response(index, cache=False)

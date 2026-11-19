@@ -29,15 +29,28 @@ export default function Explain() {
         Each note says what input triggers the bug and why the code does the wrong thing.
         {prefs.studentMode ? " Student mode is on, so the shorter explanation is showing." : " Turn on student mode for a shorter version."}
       </p>
-      {error && <p className="mt-4 text-coral">{error}</p>}
+      {error && <p className="mt-4 text-bug">{error}</p>}
       <div className="mt-6 space-y-3">
         {bugs.length === 0 && <p className="text-mist">No scan yet. Run one from the Scan step.</p>}
         {bugs.map((bug) => (
-          <Link key={bug.id} to={`/p/${projectId}/explain/${bug.id}`} className="block rounded-xl border border-line bg-panel p-4">
+          <div key={bug.id} className="rounded-xl border border-line bg-panel p-4">
             <SeverityBadge severity={bug.severity_and_confidence.severity} />
-            <p className="mt-2 font-medium">{bug.bug_details.title}</p>
+            <Link to={`/p/${projectId}/explain/${bug.id}`} className="mt-2 block font-medium hover:underline">
+              {bug.bug_details.title}
+            </Link>
             <p className="mt-2 text-sm">{explanationFor(prefs.studentMode, prefs.language, bug)}</p>
-          </Link>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link to={`/p/${projectId}/explain/${bug.id}`} className="text-xs font-medium underline-offset-2 hover:underline">
+                Open report
+              </Link>
+              <Link
+                to={`/p/${projectId}/assistant?bug=${bug.id}`}
+                className="rounded-xl border border-line bg-cream px-2.5 py-1 text-xs font-medium hover:border-ink"
+              >
+                Discuss with Assistant
+              </Link>
+            </div>
+          </div>
         ))}
       </div>
     </div>

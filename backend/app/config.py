@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     sandbox_mem_mb: int = 512
     rate_limit_per_minute: int = 40
     app_env: str = "development"
+    jwt_secret: str = "dev-only-change-me-autopatch-jwt-secret"
 
     @property
     def repo_root(self) -> Path:

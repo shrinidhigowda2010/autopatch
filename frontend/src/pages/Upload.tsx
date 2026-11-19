@@ -62,13 +62,13 @@ export default function Upload() {
           value={url}
           onChange={(event) => setUrl(event.target.value)}
           placeholder="https://github.com/owner/repo"
-          className="flex-1 rounded-lg border border-line bg-ink px-3 py-2"
+          className="flex-1 rounded-lg border border-line bg-cream px-3 py-2"
         />
-        <button className="rounded-lg bg-lime px-4 py-2 font-medium text-ink" disabled={busy || !url}>
+        <button className="btn-primary" disabled={busy || !url}>
           Import repo
         </button>
       </form>
-      {error && <p className="mt-4 text-coral">{error}</p>}
+      {error && <p className="mt-4 text-bug">{error}</p>}
     </div>
   );
 }

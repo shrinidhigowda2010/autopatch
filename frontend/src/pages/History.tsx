@@ -24,7 +24,7 @@ export default function History() {
         <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/pdf`}>Export PDF</a>
         <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/zip`}>Export fixed zip</a>
       </div>
-      {error && <p className="mt-4 text-coral">{error}</p>}
+      {error && <p className="mt-4 text-bug">{error}</p>}
       <ol className="mt-6 space-y-3">
         {(data?.events || []).map((event) => (
           <li key={event.at + event.message} className="rounded-lg border border-line bg-panel px-3 py-2">

@@ -51,10 +51,10 @@ export default function Benchmark() {
         Eight bundled programs, each with a ground-truth bug list. The numbers below are measured by running the scanners and the oracles.
         Gemini is not part of this score.
       </p>
-      <button onClick={() => void run()} disabled={busy} className="mt-4 rounded-lg bg-lime px-4 py-2 font-medium text-ink disabled:opacity-60">
+      <button onClick={() => void run()} disabled={busy} className="mt-4 btn-primary disabled:opacity-60">
         {busy ? "Measuring… this takes a minute" : "Run benchmark"}
       </button>
-      {error && <p className="mt-4 text-coral">{error}</p>}
+      {error && <p className="mt-4 text-bug">{error}</p>}
       {result?.note && <p className="mt-4 text-mist">{result.note}</p>}
       {result?.detection_rate !== undefined && (
         <>

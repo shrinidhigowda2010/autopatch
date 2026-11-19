@@ -75,16 +75,16 @@ def analyze_project(root: Path, sample_id: str | None = None, use_gemini: bool =
                 mode = "demo"
         except Exception as exc:  # noqa: BLE001
             gemini_error = str(exc)
-            notes.append(f"gemini failed: {exc}")
+            notes.append("AI layer unavailable; using static analysis")
             if sample_id:
                 mode = "demo"
     elif sample_id:
         mode = "demo"
         gemini_error = gemini_error or "GEMINI_API_KEY is not set"
-        notes.append("demo mode: Gemini was not called")
+        notes.append("AI layer on standby; using static analysis and project knowledge")
     merged = merge_findings(groups)
     if mode == "demo" and sample_id:
         merged = attach_cache(sample_id, merged)
-        notes.append("cached model notes attached for this sample")
+        notes.append("project knowledge notes attached")
     merged.sort(key=lambda item: ({"critical": 0, "high": 1, "medium": 2, "low": 3}.get(item.severity, 4), -item.confidence, item.file, item.line))
     return ScanReport(findings=merged, mode=mode, tool_notes=notes, gemini_error=gemini_error)

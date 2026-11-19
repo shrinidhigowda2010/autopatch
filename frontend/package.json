@@ -1,5 +1,5 @@
 {
-  "name": "autopatch-frontend",
+  "name": "fixpilot-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,15 +10,24 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@react-three/drei": "^9.117.3",
+    "@react-three/fiber": "^8.17.10",
+    "framer-motion": "^14.14.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^6.28.1",
-    "recharts": "^2.15.0"
+    "react-syntax-highlighter": "^16.1.2",
+    "recharts": "^2.15.0",
+    "remark-gfm": "^4.0.1",
+    "three": "^0.170.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.1.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "@types/three": "^0.170.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "jsdom": "^25.0.1",
