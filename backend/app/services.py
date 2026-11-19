@@ -13,8 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.analysis.pipeline import analyze_project
 from app.ids import new_id
-from app.ingest.files import IngestError, copy_project, extract_zip, project_paths, save_single_file
+from app.ingest.files import IngestError, copy_project, extract_tar, extract_zip, project_paths, write_files
+from app.ingest.formats import extract_upload, is_archive, sniff
 from app.ingest.github import download_github
+from app.ingest.links import fetch_gist, resolve_link, safe_get
 from app.ingest.structure import describe_project
 from app.models import (
     Bug,
@@ -110,23 +112,90 @@ def create_from_sample(
 
 
 def create_from_upload(session: Session, filename: str, data: bytes, user: User | None = None) -> Project:
+    archive = is_archive(filename, data)
     project = Project(
         id=new_id(),
-        name=Path(filename).stem or "upload",
-        source_type="zip" if filename.lower().endswith(".zip") else "upload",
+        name=_display_name(filename),
+        source_type="zip" if archive else "upload",
     )
     _attach_owner(project, user)
     session.add(project)
     session.flush()
-    if filename.lower().endswith(".zip"):
-        workspace = extract_zip(project.id, data)
-    else:
-        workspace = save_single_file(project.id, filename, data)
+    workspace = ingest_bytes(project.id, filename, data)
     _store_meta(project, workspace)
     _ensure_v0(session, project)
-    record(session, project.id, "upload", f"Uploaded {filename}.")
+    record(session, project.id, "upload", f"Uploaded {Path(filename).name}.")
     session.commit()
     return project
+
+
+def ingest_bytes(project_id: str, filename: str, data: bytes) -> Path:
+    """Unpack an archive, or convert any other upload into source files."""
+    if is_archive(filename, data):
+        if sniff(data) == "zip":
+            return extract_zip(project_id, data)
+        return extract_tar(project_id, data)
+    extraction = extract_upload(filename, data)
+    return write_files(project_id, [(item.path, item.content) for item in extraction.files])
+
+
+PASTE_ORIGINS = {"paste", "upload", "pdf", "image", "notebook", "docx", "code"}
+
+
+def create_from_files(
+    session: Session,
+    name: str,
+    files: list[tuple[str, str]],
+    origin: str = "paste",
+    user: User | None = None,
+) -> Project:
+    """Create a project from pasted code or a confirmed extraction preview."""
+    source_type = origin if origin in PASTE_ORIGINS else "paste"
+    project = Project(id=new_id(), name=(name.strip() or "pasted-code")[:120], source_type=source_type)
+    _attach_owner(project, user)
+    session.add(project)
+    session.flush()
+    workspace = write_files(project.id, files)
+    _store_meta(project, workspace)
+    _ensure_v0(session, project)
+    label = "Pasted code" if source_type == "paste" else f"Confirmed {source_type} extraction"
+    record(session, project.id, "upload", f"{label}: {len(files)} file(s).")
+    session.commit()
+    return project
+
+
+def create_from_link(session: Session, url: str, user: User | None = None) -> Project:
+    link = resolve_link(url)
+    if link.kind == "repo":
+        return create_from_github(session, link.url, user=user)
+    if link.kind == "gist":
+        files = fetch_gist(link.url)
+        name = Path(files[0][0]).stem or "gist"
+    else:
+        data = safe_get(link.url)
+        files = None
+        name = _display_name(link.filename)
+    project = Project(id=new_id(), name=name[:120], source_type="link", github_url=url.strip()[:300])
+    _attach_owner(project, user)
+    session.add(project)
+    session.flush()
+    if files is not None:
+        workspace = write_files(project.id, files)
+    else:
+        workspace = ingest_bytes(project.id, link.filename, data)
+    _store_meta(project, workspace)
+    _ensure_v0(session, project)
+    record(session, project.id, "upload", f"Imported {url.strip()[:200]}.")
+    session.commit()
+    return project
+
+
+def _display_name(filename: str) -> str:
+    name = Path(filename).name
+    for suffix in (".tar.gz", ".tgz", ".tar", ".zip"):
+        if name.lower().endswith(suffix):
+            return name[: -len(suffix)] or "upload"
+    return Path(name).stem or "upload"
 
 
 def create_from_github(session: Session, url: str, user: User | None = None) -> Project:

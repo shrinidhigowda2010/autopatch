@@ -6,6 +6,7 @@ callers catch GeminiError and switch the scan to demo mode.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import time
@@ -13,6 +14,7 @@ import time
 import httpx
 
 from app.analysis.catalog import needs_review
+from app.agent.redaction import redact_text
 from app.analysis.findings import Finding, snippet_around
 from app.config import settings
 
@@ -34,6 +36,17 @@ confidence is your calibrated probability that this is a real bug, from 0 to 1.
 """
 
 
+_VISION_PROMPT = """This image shows source code: a screenshot, a photo of a screen, or a scan.
+Transcribe the code exactly as written, keeping indentation and line breaks.
+Do not fix bugs, do not add comments, and do not add explanations.
+Leave out line numbers, editor chrome and anything that is not code.
+
+Return JSON: {"filename": "main.py", "code": "..."}.
+Pick a sensible filename with the right extension for the language.
+If there is no code in the image, return {"filename": "", "code": ""}.
+"""
+
+
 class GeminiError(RuntimeError):
     pass
 
@@ -50,6 +63,28 @@ def analyze_with_gemini(files: list[tuple[str, str]]) -> list[Finding]:
     return _parse(raw, files)
 
 
+def read_code_from_image(data: bytes, mime: str) -> dict:
+    """Ask Gemini vision to transcribe the code in an image. Returns {filename, code}."""
+    if not settings.gemini_configured:
+        raise GeminiError("GEMINI_API_KEY is not set")
+    parts = [
+        {"text": _VISION_PROMPT},
+        {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode("ascii")}},
+    ]
+    try:
+        raw = _generate(settings.gemini_model, parts, json_output=True)
+    except GeminiError as first:
+        log.warning("primary gemini model failed on an image: %s", first)
+        raw = _generate(settings.gemini_fallback_model, parts, json_output=True)
+    try:
+        payload = json.loads(_strip_fences(raw))
+    except json.JSONDecodeError as exc:
+        raise GeminiError(f"Gemini did not return JSON for the image: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise GeminiError("Gemini returned an unexpected shape for the image")
+    return {"filename": str(payload.get("filename") or ""), "code": str(payload.get("code") or "")}
+
+
 def translate_text(text: str, language: str) -> str:
     if not settings.gemini_configured:
         raise GeminiError("GEMINI_API_KEY is not set")
@@ -61,17 +96,19 @@ def translate_text(text: str, language: str) -> str:
 def _bundle(files: list[tuple[str, str]]) -> str:
     parts = []
     for path, source in files[:8]:
-        clipped = source[:12000]
+        # Secrets never leave the machine; the model sees placeholders instead.
+        clipped = redact_text(source[:12000])
         parts.append(f"----- {path} -----\n{clipped}")
     return "\n\n".join(parts)
 
 
-def _generate(model: str, prompt: str) -> str:
+def _generate(model: str, prompt: str | list[dict], json_output: bool = False) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    body = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1},
-    }
+    parts = [{"text": prompt}] if isinstance(prompt, str) else prompt
+    config: dict = {"temperature": 0.1}
+    if json_output:
+        config["responseMimeType"] = "application/json"
+    body = {"contents": [{"parts": parts}], "generationConfig": config}
     last_error = "no response"
     attempts = max(1, settings.gemini_retries)
     for attempt in range(attempts):
@@ -94,11 +131,16 @@ def _generate(model: str, prompt: str) -> str:
     raise GeminiError(last_error)
 
 
-def _parse(raw: str, files: list[tuple[str, str]]) -> list[Finding]:
+def _strip_fences(raw: str) -> str:
     text = raw.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[-1]
         text = text.rsplit("```", 1)[0]
+    return text
+
+
+def _parse(raw: str, files: list[tuple[str, str]]) -> list[Finding]:
+    text = _strip_fences(raw)
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:

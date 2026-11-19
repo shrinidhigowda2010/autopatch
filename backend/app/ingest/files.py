@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import shutil
+import tarfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from app.config import settings
-
-ALLOWED_SUFFIXES = {
-    ".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".txt", ".md",
-    ".toml", ".yml", ".yaml", ".cfg", ".ini", ".css", ".html",
-}
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".vscode"}
 
 
@@ -46,22 +43,6 @@ def copy_project(origin: Path, project_id: str) -> Path:
     return workspace
 
 
-def save_single_file(project_id: str, filename: str, data: bytes) -> Path:
-    _too_big(len(data))
-    name = Path(filename).name
-    if not name or name.startswith("."):
-        raise IngestError("Pick a source file.")
-    suffix = Path(name).suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise IngestError(f"{suffix or 'that file type'} is not allowed.")
-    source, workspace = project_paths(project_id)
-    (source / name).write_bytes(data)
-    if workspace.exists():
-        shutil.rmtree(workspace)
-    shutil.copytree(source, workspace)
-    return workspace
-
-
 def extract_zip(project_id: str, data: bytes) -> Path:
     _too_big(len(data))
     source, workspace = project_paths(project_id)
@@ -78,6 +59,91 @@ def extract_zip(project_id: str, data: bytes) -> Path:
     finally:
         tmp.unlink(missing_ok=True)
     _flatten_single_root(source)
+    if workspace.exists():
+        shutil.rmtree(workspace)
+    shutil.copytree(source, workspace)
+    _guard_tree(workspace)
+    return workspace
+
+
+def extract_tar(project_id: str, data: bytes) -> Path:
+    _too_big(len(data))
+    source, workspace = project_paths(project_id)
+    if source.exists():
+        shutil.rmtree(source)
+    source.mkdir(parents=True, exist_ok=True)
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as archive:
+            _safe_extract_tar(archive, source)
+    except (tarfile.TarError, EOFError, OSError) as exc:
+        raise IngestError("That archive could not be read.") from exc
+    _flatten_single_root(source)
+    return _refresh_workspace(source, workspace)
+
+
+def _safe_extract_tar(archive: tarfile.TarFile, dest: Path) -> None:
+    dest_resolved = dest.resolve()
+    total = 0
+    count = 0
+    cap = settings.max_unzip_mb * 1024 * 1024
+    for member in archive:
+        # Links, devices and fifos are never written; only plain files.
+        if not member.isfile():
+            continue
+        count += 1
+        if count > settings.max_files:
+            raise IngestError("The archive has too many files.")
+        total += member.size
+        if total > cap:
+            raise IngestError("The archive expands to more than the allowed size.")
+        target = (dest / member.name).resolve()
+        if target == dest_resolved or dest_resolved not in target.parents:
+            raise IngestError("The archive tried to write outside its folder.")
+        handle = archive.extractfile(member)
+        if handle is None:
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with handle, target.open("wb") as out:
+            shutil.copyfileobj(handle, out)
+
+
+def safe_relative_path(raw: str) -> str:
+    """Clean a user-supplied file path, refusing anything that escapes the project."""
+    cleaned = (raw or "").strip().replace("\\", "/")
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    path = PurePosixPath(cleaned)
+    if not cleaned or path.is_absolute() or ".." in path.parts or len(cleaned) > 200:
+        raise IngestError(f"“{raw[:60]}” is not a valid file name.")
+    if any(part in SKIP_DIRS for part in path.parts) or ":" in cleaned:
+        raise IngestError(f"“{raw[:60]}” is not a valid file name.")
+    return path.as_posix()
+
+
+def write_files(project_id: str, files: list[tuple[str, str]]) -> Path:
+    """Create a project from in-memory files (pasted code or a confirmed preview)."""
+    if not files:
+        raise IngestError("Add at least one file.")
+    if len(files) > settings.max_files:
+        raise IngestError("Too many files.")
+    _too_big(sum(len(content.encode("utf-8")) for _path, content in files))
+    source, workspace = project_paths(project_id)
+    if source.exists():
+        shutil.rmtree(source)
+    source.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
+    for raw_path, content in files:
+        rel = safe_relative_path(raw_path)
+        if rel.lower() in seen:
+            raise IngestError(f"Two files are named {rel}.")
+        seen.add(rel.lower())
+        target = source / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+    return _refresh_workspace(source, workspace)
+
+
+def _refresh_workspace(source: Path, workspace: Path) -> Path:
     if workspace.exists():
         shutil.rmtree(workspace)
     shutil.copytree(source, workspace)

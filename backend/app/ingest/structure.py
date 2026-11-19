@@ -7,21 +7,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-_LANG = {
-    ".py": "Python",
-    ".js": "JavaScript",
-    ".jsx": "JavaScript",
-    ".ts": "TypeScript",
-    ".tsx": "TypeScript",
-    ".json": "JSON",
-    ".md": "Markdown",
-    ".toml": "TOML",
-    ".yml": "YAML",
-    ".yaml": "YAML",
-    ".css": "CSS",
-    ".html": "HTML",
-    ".txt": "Text",
-}
+from app.ingest.languages import LANGUAGES
+
+_LANG = LANGUAGES
 
 
 def describe_project(root: Path) -> dict:

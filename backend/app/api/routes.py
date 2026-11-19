@@ -19,12 +19,15 @@ from app.db import SessionLocal, get_session
 from app.exporting.report import render_pdf, report_payload, zip_workspace
 from app.ids import new_id
 from app.ingest.files import IngestError
+from app.ingest.formats import extract_upload, is_archive
 from app.limiter import limit_request
 from app.llm.gemini import GeminiError, translate_text
 from app.models import Bug, HistoryEvent, Patch, Project, Scan, TestEvent, TestRun, User
 from app.services import (
     apply_safe,
+    create_from_files,
     create_from_github,
+    create_from_link,
     create_from_sample,
     create_from_upload,
     decide_patch,
@@ -54,6 +57,21 @@ class SampleIn(BaseModel):
 
 class GithubIn(BaseModel):
     url: str = Field(min_length=12, max_length=300)
+
+
+class LinkIn(BaseModel):
+    url: str = Field(min_length=8, max_length=300)
+
+
+class PastedFile(BaseModel):
+    path: str = Field(default="", max_length=200)
+    content: str = Field(max_length=2_000_000)
+
+
+class PasteIn(BaseModel):
+    name: str = Field(default="", max_length=120)
+    origin: str = Field(default="paste", max_length=20)
+    files: list[PastedFile] = Field(min_length=1, max_length=400)
 
 
 class DecisionIn(BaseModel):
@@ -250,6 +268,55 @@ async def upload(
     data = await file.read()
     try:
         project = create_from_upload(session, file.filename or "upload.txt", data, user=user)
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return _project_dict(project)
+
+
+@router.post("/projects/extract", dependencies=[Depends(limit_request)])
+async def extract(file: UploadFile = File(...)) -> dict:
+    """Read a file into editable source files for the preview step. No project is created."""
+    data = await file.read()
+    filename = file.filename or "upload.txt"
+    if len(data) > settings.max_upload_mb * 1024 * 1024:
+        raise HTTPException(413, f"Upload is larger than {settings.max_upload_mb} MB.")
+    if not data:
+        raise HTTPException(400, "That file is empty.")
+    if is_archive(filename, data):
+        return {"kind": "archive", "files": [], "notes": ["Archives are unpacked when you import them."]}
+    try:
+        return extract_upload(filename, data).as_dict()
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+
+
+@router.post("/projects/paste", dependencies=[Depends(limit_request)])
+def from_paste(body: PasteIn, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
+    files = []
+    for index, item in enumerate(body.files, start=1):
+        path = item.path.strip() or _guessed_name(item.content, index)
+        files.append((path, item.content))
+    if not any(content.strip() for _path, content in files):
+        raise HTTPException(400, "There is no code to scan yet.")
+    name = body.name or files[0][0].rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    try:
+        project = create_from_files(session, name, files, origin=body.origin, user=user)
+    except IngestError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    return _project_dict(project)
+
+
+def _guessed_name(content: str, index: int) -> str:
+    from app.ingest.languages import extension_for, guess_language
+
+    stem = "main" if index == 1 else f"file_{index}"
+    return stem + extension_for(guess_language(content))
+
+
+@router.post("/projects/link", dependencies=[Depends(limit_request)])
+def from_link(body: LinkIn, session: Session = Depends(get_session), user: OptionalUser = None) -> dict:
+    try:
+        project = create_from_link(session, body.url, user=user)
     except IngestError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     return _project_dict(project)

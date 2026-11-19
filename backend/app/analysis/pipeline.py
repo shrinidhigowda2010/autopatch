@@ -11,6 +11,7 @@ from app.analysis.findings import Finding
 from app.analysis.merge import merge_findings
 from app.analysis.secrets import scan_secrets
 from app.analysis.static_runner import run_static_tools
+from app.ingest.languages import CODE_LANGUAGES, LANGUAGES
 from app.llm.cache import attach_cache
 from app.llm.gemini import GeminiError, analyze_with_gemini
 
@@ -39,12 +40,23 @@ def python_files(root: Path, include_tests: bool = False) -> list[Path]:
 
 
 def text_files(root: Path) -> list[Path]:
-    suffixes = {".py", ".js", ".jsx", ".ts", ".tsx", ".json", ".env", ".yml", ".yaml", ".toml", ".ini", ".cfg", ".txt", ".md"}
+    suffixes = set(LANGUAGES)
     found = []
     for path in root.rglob("*"):
         if not path.is_file() or any(part in _SKIP_DIRS for part in path.parts):
             continue
         if path.suffix.lower() in suffixes or path.name.startswith(".env"):
+            found.append(path)
+    return found
+
+
+def other_code_files(root: Path) -> list[Path]:
+    found = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or any(part in _SKIP_DIRS for part in path.parts):
+            continue
+        suffix = path.suffix.lower()
+        if suffix in CODE_LANGUAGES and suffix != ".py":
             found.append(path)
     return found
 
@@ -59,6 +71,12 @@ def analyze_project(root: Path, sample_id: str | None = None, use_gemini: bool =
         sources[rel] = text
         ast_found.extend(scan_source(rel, text))
     tool_found, notes = run_static_tools(root, py_files)
+    other_code = other_code_files(root)
+    if other_code:
+        # Static tools and sandbox tests cover Python only; other languages get AI analysis.
+        notes.append(f"{len(other_code)} non-Python file(s): AI analysis only, not verified by tests")
+        for path in other_code:
+            sources[path.relative_to(root).as_posix()] = path.read_text(encoding="utf-8", errors="replace")
     secret_found = scan_secrets(root, text_files(root))
     groups = [ast_found, tool_found, secret_found]
     mode = "live"

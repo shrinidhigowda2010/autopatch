@@ -12,7 +12,7 @@ Students and junior developers can see that a program is wrong and still not kno
 
 Five steps, in the sidebar:
 
-1. **Upload** a file, a zip, or a public GitHub URL. The app shows the file tree, languages, dependencies, important files, and an import graph.
+1. **Upload** almost anything: a code file, a zip/tar archive, a PDF, a Word doc, a Jupyter notebook, a screenshot of code, pasted code, or a link. The app shows the file tree, languages, dependencies, important files, and an import graph. See [What you can upload](#what-you-can-upload).
 2. **Scan** with two layers. Layer 1 is pylint, pyflakes, bandit, and a secret scanner. Layer 2 is Gemini (`GEMINI_API_KEY`), with a second model, retries, and a timeout. Findings are merged. If Gemini is missing, the AI engine stays on standby and static analysis plus project knowledge continue without a banner.
 3. **Explain** the root cause: the input that triggers the bug, and why the code does the wrong thing. Student mode shortens that. Kannada and Hindi are available for the bundled rules, and via Gemini when a key is set.
 4. **Fix** with a small patch. The screen shows a unified diff and the before (red) and after (green) code. Accept or reject is required. "Apply all safe fixes" only applies high-confidence patches whose tests passed.
@@ -28,7 +28,7 @@ Every bug report has the same six sections: bug details, root cause, suggested p
 
 | Requirement | Where it is implemented |
 | --- | --- |
-| Upload a single file, a zip, or a public GitHub URL | `backend/app/ingest/files.py`, `backend/app/ingest/github.py`, Upload page |
+| Upload files, archives, PDFs, docs, notebooks, screenshots, pasted code, or links | `backend/app/ingest/` (`files.py`, `formats.py`, `links.py`, `github.py`), Upload page |
 | File tree, languages, dependencies, important files, import graph | `backend/app/ingest/structure.py`, Scan page |
 | Layer 1: pylint, pyflakes, bandit, secret scanning | `backend/app/analysis/static_runner.py`, `secrets.py` |
 | Layer 2: Gemini for logic errors, edge cases, wrong outputs, crashes | `backend/app/llm/gemini.py` |
@@ -128,10 +128,31 @@ On the Fix page, choose **Manual**, **Ask Every Fix** (default), or **Auto for S
 - Data: SQLite by default, Postgres when `DATABASE_URL` is set
 - Deploy: one Docker image, Render web service
 
+## What you can upload
+
+The Upload page has three tabs, and Ctrl+V works anywhere on the page (an image uploads, a link opens the link tab, text opens the paste tab).
+
+| Input | How FixPilot reads it |
+| --- | --- |
+| Code and text: `.py .js .ts .jsx .tsx .java .c .cpp .h .cs .go .rb .php .kt .swift .rs .sql .sh .html .css .json .yaml .xml .md .txt` and more | Used as is. The language comes from the extension, or from the content when there is none. |
+| Archives: `.zip .tar .tar.gz .tgz` | Unpacked with path-traversal, file-count and expanded-size checks. Symlinks and devices in tar files are skipped. |
+| PDF | Text is extracted with `pypdf`, and code blocks are split from the prose. Scanned PDFs are read from their page images. |
+| Word `.docx` | Paragraph text is read, then split into code blocks like a PDF. |
+| Jupyter `.ipynb` | Code cells are joined into one `.py` file. Shell commands and magics become comments. |
+| Screenshots: `.png .jpg .webp .gif .bmp` | Gemini vision transcribes the code. Without a key, the page asks you to paste the code instead (Tesseract is used if it is installed). |
+| Pasted code | Saved as a file. The name is guessed from the language if you leave it blank. |
+| Links | A GitHub repo (zip download), a GitHub file page (turned into its raw link), a Gist, a Pastebin page, or any public `http(s)` file. |
+
+PDFs, documents, notebooks and screenshots open in a preview first, so you can fix anything that was read wrong before clicking **Scan now**. Python gets the full pipeline (static tools and sandbox tests). Other languages get Gemini analysis only, and the UI labels them "AI analysis only, not verified by tests". Anything else gets a clear "can't read that yet" message (HTTP 415).
+
 ## Security and the sandbox
 
 - Uploads are capped (8 MB by default). Zips are checked for path traversal and for a zip bomb (file count and uncompressed size).
 - GitHub imports accept only `https://github.com/owner/repo`. The download is capped at 8 MB. No credentials are sent.
+- Uploads are identified by their content, not just their extension: a `.png` that is not an image, or a binary file named `.py`, is rejected.
+- Links must be `http` or `https`. The host is resolved and refused if any address is loopback, private, link-local or reserved, and the check runs again on every redirect. Downloads have timeouts and a byte cap.
+- Secrets are redacted from source code before it is sent to Gemini. Screenshots are sent as images, so avoid screenshots that show real keys.
+- Uploaded files are only parsed, never run. Code runs only inside the test sandbox.
 - User code runs with `subprocess` in a temp copy. The child does not receive `GEMINI_API_KEY`, `DATABASE_URL`, or other secret environment variables. CPU, address-space, file-size, and wall-clock limits are set. Output is truncated.
 - Network is not a separate namespace. Isolating the network with `unshare` needs privileges this service does not assume. The child still has no API keys.
 - Patches are not written until Approve/Accept, or until "Apply all safe fixes" after tests have passed. Auto-Correct Mode asks before each change and rolls back if post-fix tests fail.
@@ -185,7 +206,10 @@ The repo includes `render.yaml` and a Dockerfile that builds the frontend and se
 | POST | `/api/auth/logout` | Client discards token |
 | GET | `/api/auth/history` | Projects owned by the signed-in user |
 | GET | `/api/samples` | Bundled demos |
-| POST | `/api/projects/upload` | File or zip |
+| POST | `/api/projects/upload` | Any supported file or archive; creates a project |
+| POST | `/api/projects/extract` | Any supported file; returns editable files for the preview, no project |
+| POST | `/api/projects/paste` | `{ "name": "", "origin": "paste", "files": [{ "path": "main.py", "content": "..." }] }` |
+| POST | `/api/projects/link` | `{ "url": "https://github.com/owner/repo/blob/main/app.py" }` |
 | POST | `/api/projects/github` | `{ "url": "https://github.com/owner/repo" }` |
 | POST | `/api/projects/sample` | `{ "sample_id": "marks_calculator" }` |
 | GET | `/api/projects/{id}` | Tree, languages, dependencies, graph |
