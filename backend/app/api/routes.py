@@ -47,6 +47,9 @@ from app.services import (
     workspace_for,
 )
 
+# Seconds to keep waiting for Gemini once the static tools have finished a scan.
+SCAN_AI_WAIT_S = 30.0
+
 router = APIRouter(prefix="/api")
 
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
@@ -369,7 +372,8 @@ def start_scan(
     project_id: str, session: Session = Depends(get_session), user: OptionalUser = None
 ) -> dict:
     project = _project(session, project_id, user)
-    scan = run_scan(session, project, user=user)
+    # If Gemini hangs, finish with static analysis instead of making the user wait minutes.
+    scan = run_scan(session, project, user=user, ai_wait_s=SCAN_AI_WAIT_S)
     bugs = session.scalars(select(Bug).where(Bug.scan_id == scan.id)).all()
     return {**_scan_dict(scan), "bugs": [_bug_dict(session, bug) for bug in bugs]}
 
@@ -571,7 +575,7 @@ def ask_ai_about_fix(
         f"Question: {body.question}"
     )
     try:
-        answer = ask_gemini(prompt).strip()
+        answer = ask_gemini(prompt, timeout=20, prefer_fast=True).strip()
     except GeminiError:
         return local_answer()
     return {"answer": answer, "source": "gemini"}
