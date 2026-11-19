@@ -4,6 +4,8 @@ import Shell from "./components/Shell";
 import Home from "./pages/Home";
 
 // Home loads with the app; every other page is fetched when first opened.
+const AccountDashboard = lazy(() => import("./pages/AccountDashboard"));
+const AccountHistory = lazy(() => import("./pages/AccountHistory"));
 const Assistant = lazy(() => import("./pages/Assistant"));
 const Benchmark = lazy(() => import("./pages/Benchmark"));
 const BugPage = lazy(() => import("./pages/Bug"));
@@ -50,7 +52,9 @@ export default function App() {
         <Route path="p/:projectId/history" element={<History />} />
         <Route path="p/:projectId/decisions" element={<DecisionLog />} />
         <Route path="p/:projectId/assistant" element={<Assistant />} />
-        <Route path="assistant" element={<Navigate to="/upload" replace />} />
+        <Route path="assistant" element={<Assistant />} />
+        <Route path="dashboard" element={<AccountDashboard />} />
+        <Route path="history" element={<AccountHistory />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

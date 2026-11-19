@@ -1,10 +1,11 @@
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Suspense, createContext, useContext, useMemo, useState } from "react";
+import { Suspense, createContext, useContext, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../auth";
 import AiStatus from "./AiStatus";
 import { PageSkeleton } from "./Skeleton";
 import Logo from "./Logo";
+import { rememberProject } from "../lib/recent";
 
 interface Prefs {
   studentMode: boolean;
@@ -52,7 +53,12 @@ export default function Shell() {
   }, [params.projectId, location.pathname]);
   const base = projectId ? `/p/${projectId}` : "";
   const isAuthPage = location.pathname === "/login" || location.pathname === "/register";
-  const assistantTo = projectId ? `${base}/assistant` : "/upload";
+  const assistantTo = projectId ? `${base}/assistant` : "/assistant";
+  const path = location.pathname;
+
+  useEffect(() => {
+    if (projectId) rememberProject(projectId);
+  }, [projectId]);
 
   function stepActive(path: string): boolean {
     if (projectId) return location.pathname.startsWith(`${base}/${path}`);
@@ -87,30 +93,29 @@ export default function Shell() {
                 </Link>
               ))}
               <div className="my-2 hidden h-px bg-line md:block" />
-              <Link
-                to={assistantTo}
-                className={navClass(Boolean(projectId) && location.pathname.includes("/assistant"))}
-              >
+              <Link to={assistantTo} className={navClass(path.endsWith("/assistant"))}>
                 FixPilot Assistant
               </Link>
-              <Link
-                to={projectId ? `${base}/dashboard` : "/upload"}
-                className={navClass(Boolean(projectId) && location.pathname.startsWith(`${base}/dashboard`))}
-              >
+              <Link to="/dashboard" className={navClass(path === "/dashboard")}>
                 Dashboard
               </Link>
-              <Link
-                to={projectId ? `${base}/history` : "/upload"}
-                className={navClass(Boolean(projectId) && location.pathname.startsWith(`${base}/history`))}
-              >
+              <Link to="/history" className={navClass(path === "/history")}>
                 History
               </Link>
               {projectId && (
-                <Link to={`${base}/decisions`} className={navClass(location.pathname.startsWith(`${base}/decisions`))}>
-                  Decision Log
-                </Link>
+                <>
+                  <Link to={`${base}/dashboard`} className={navClass(path.startsWith(`${base}/dashboard`))}>
+                    Project dashboard
+                  </Link>
+                  <Link to={`${base}/history`} className={navClass(path.startsWith(`${base}/history`))}>
+                    Project history
+                  </Link>
+                  <Link to={`${base}/decisions`} className={navClass(path.startsWith(`${base}/decisions`))}>
+                    Decision Log
+                  </Link>
+                </>
               )}
-              <Link to="/benchmark" className={navClass(location.pathname.startsWith("/benchmark"))}>
+              <Link to="/benchmark" className={navClass(path.startsWith("/benchmark"))}>
                 Benchmark
               </Link>
               <Link to="/race" className={navClass(false)}>

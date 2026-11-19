@@ -21,7 +21,7 @@ from app.auth import (
 from app.db import get_session
 from app.ids import new_id
 from app.models import Project, User
-from app.services import profile_stats
+from app.services import SCRATCH_SOURCE, profile_stats
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -122,10 +122,14 @@ def logout(user: User = Depends(require_user)) -> dict:
 @router.get("/history")
 def my_history(user: User = Depends(require_user), session: Session = Depends(get_session)) -> dict:
     if user.role == "admin":
-        rows = session.scalars(select(Project).order_by(Project.created_at.desc()).limit(100)).all()
+        rows = session.scalars(
+            select(Project).where(Project.source_type != SCRATCH_SOURCE).order_by(Project.created_at.desc()).limit(100)
+        ).all()
     else:
         rows = session.scalars(
-            select(Project).where(Project.user_id == user.id).order_by(Project.created_at.desc())
+            select(Project)
+            .where(Project.user_id == user.id, Project.source_type != SCRATCH_SOURCE)
+            .order_by(Project.created_at.desc())
         ).all()
     return {
         "projects": [

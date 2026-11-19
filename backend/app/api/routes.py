@@ -24,6 +24,7 @@ from app.limiter import limit_request
 from app.llm.gemini import GeminiError, translate_text
 from app.models import Bug, HistoryEvent, Patch, Project, Scan, TestEvent, TestRun, User
 from app.services import (
+    SCRATCH_SOURCE,
     apply_safe,
     create_from_files,
     create_from_github,
@@ -239,10 +240,14 @@ def list_projects(session: Session = Depends(get_session), user: OptionalUser = 
         # Guest / demo: do not expose other people's saved projects.
         return []
     if user.role == "admin":
-        rows = session.scalars(select(Project).order_by(Project.created_at.desc())).all()
+        rows = session.scalars(
+            select(Project).where(Project.source_type != SCRATCH_SOURCE).order_by(Project.created_at.desc())
+        ).all()
     else:
         rows = session.scalars(
-            select(Project).where(Project.user_id == user.id).order_by(Project.created_at.desc())
+            select(Project)
+            .where(Project.user_id == user.id, Project.source_type != SCRATCH_SOURCE)
+            .order_by(Project.created_at.desc())
         ).all()
     return [_project_dict(row) for row in rows]
 

@@ -76,7 +76,8 @@ def prove(
     )
 
     say("Regression check: full suite on the patched code, including the original tests.")
-    regression = run_pytest(after)
+    # Pasted snippets have no tests/ folder; then the generated tests are the whole suite.
+    regression = run_pytest(after) if (after / "tests").is_dir() else gen_after
     say(
         "Full suite passed." if regression.ok else "Full suite reported failures.",
         "pass" if regression.ok else "fail",

@@ -56,6 +56,28 @@ class GeminiError(RuntimeError):
 COOLDOWN_S = 300.0
 _cooling_until: dict[str, float] = {}
 
+# A rejected key (401/403) will not start working by retrying, so skip Gemini for a while.
+KEY_REJECTED_S = 600.0
+_key_rejected_until = 0.0
+
+
+def mark_key_rejected() -> None:
+    global _key_rejected_until
+    _key_rejected_until = time.monotonic() + KEY_REJECTED_S
+
+
+def gemini_usable() -> bool:
+    """A key is set and Google has not recently refused it."""
+    return settings.gemini_configured and time.monotonic() >= _key_rejected_until
+
+
+def chat_models() -> list[str]:
+    """At most two models for chat: the faster one first, unless it is cooling down."""
+    fast, primary = settings.gemini_fallback_model, settings.gemini_model
+    order = [fast] if fast == primary else [fast, primary]
+    # When every model is cooling down, return nothing so the caller answers from the scan right away.
+    return [model for model in order if time.monotonic() >= _cooling_until.get(model, 0.0)]
+
 
 def model_plan(prefer_fast: bool = False) -> list[tuple[str, int]]:
     """Models to try in order, each with how many attempts it gets.
@@ -72,8 +94,8 @@ def model_plan(prefer_fast: bool = False) -> list[tuple[str, int]]:
     return [(primary, 1), (fallback, retries)]
 
 
-def mark_failed(model: str) -> None:
-    _cooling_until[model] = time.monotonic() + COOLDOWN_S
+def mark_failed(model: str, seconds: float = COOLDOWN_S) -> None:
+    _cooling_until[model] = time.monotonic() + seconds
 
 
 def ask_gemini(
@@ -83,8 +105,8 @@ def ask_gemini(
     prefer_fast: bool = False,
 ) -> str:
     """One prompt, primary model first, then the fallback model. A short timeout suits chatty calls."""
-    if not settings.gemini_configured:
-        raise GeminiError("GEMINI_API_KEY is not set")
+    if not gemini_usable():
+        raise GeminiError("Gemini is not available")
     errors = []
     for model, attempts in model_plan(prefer_fast):
         try:
@@ -161,6 +183,8 @@ def _generate(
                 last_error = f"{model} returned {response.status_code}"
                 time.sleep(0.6 * (attempt + 1))
                 continue
+            if response.status_code in {401, 403}:
+                mark_key_rejected()
             if response.status_code >= 400:
                 raise GeminiError(f"{model} returned {response.status_code}")
             payload = response.json()

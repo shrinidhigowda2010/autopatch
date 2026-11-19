@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { api } from "../api";
 import { useAuth } from "../auth";
@@ -9,6 +9,7 @@ import ChatSidebar, { type ConversationRow } from "../components/assistant/ChatS
 import Composer, { type ChatMode } from "../components/assistant/Composer";
 import MessageBubble, { ThinkingDots, type ChatMsg, type PatchCard, type ToolStep } from "../components/assistant/MessageBubble";
 import { MenuIcon } from "../components/assistant/icons";
+import { recentChatIds, recentProjectIds, rememberChat } from "../lib/recent";
 import { listen, speechSupported } from "../lib/speech";
 import { getStoredToken } from "../token";
 import type { Project, TreeNode } from "../types";
@@ -20,11 +21,24 @@ interface BugRow {
   file: string;
 }
 
-const SUGGESTIONS = [
+interface Suggestion {
+  title: string;
+  prompt: string;
+  prefill?: boolean; // put it in the box for the user to finish instead of sending
+}
+
+const PROJECT_SUGGESTIONS: Suggestion[] = [
   { title: "Find every bug", prompt: "Find all bugs in this project" },
   { title: "Explain it simply", prompt: "Explain the most serious bug simply, like I'm new to coding" },
   { title: "Fix and prove it", prompt: "Fix the most serious bug and run the tests to prove it" },
   { title: "Review my code", prompt: "Review this project for risky code and missing edge cases" },
+];
+
+const GENERAL_SUGGESTIONS: Suggestion[] = [
+  { title: "Check my code", prompt: "Find bugs in this code:\n```python\n\n```", prefill: true },
+  { title: "Explain an error", prompt: "Explain this error and how to fix it:\n", prefill: true },
+  { title: "Try an example", prompt: "Find bugs in: def average(marks): return sum(marks) / len(marks)" },
+  { title: "Learn a concept", prompt: "Explain Python list comprehensions with a short example" },
 ];
 
 const MAX_MESSAGE_CHARS = 12000;
@@ -40,13 +54,21 @@ function asChatMsg(msg: ChatMsg): ChatMsg {
   return { ...msg, role: msg.role === "user" ? "user" : "assistant" };
 }
 
+/**
+ * The FixPilot Assistant. Inside /p/:projectId it chats about that project.
+ * At /assistant it is a standalone chat: code pasted or attached in a message is
+ * scanned behind the scenes, and an existing project can be picked instead.
+ */
 export default function Assistant() {
   const { projectId = "" } = useParams();
+  const standalone = !projectId;
+  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const { user, initials } = useAuth();
   const { language } = usePrefs(); // the header language drives replies and voice input
 
   const [project, setProject] = useState<Project | null>(null);
+  const [myProjects, setMyProjects] = useState<{ id: string; name: string }[]>([]);
   const [bugs, setBugs] = useState<BugRow[]>([]);
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [activeId, setActiveId] = useState("");
@@ -58,6 +80,7 @@ export default function Assistant() {
   const [attaching, setAttaching] = useState(false);
   const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1024);
   const [contextOpen, setContextOpen] = useState(false);
 
@@ -66,13 +89,27 @@ export default function Assistant() {
   const bugParam = params.get("bug") || "";
   const firstName = user?.full_name?.trim().split(/\s+/)[0] || "there";
   const micSupported = speechSupported();
+  const suggestions = standalone ? GENERAL_SUGGESTIONS : PROJECT_SUGGESTIONS;
+
+  const showProblem = useCallback((message: string) => {
+    setError(message);
+    setToast(message);
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(""), 6000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const loadConversations = useCallback(async () => {
-    if (!projectId) return [];
-    const body = await api<{ conversations: ConversationRow[] }>(`/api/assistant/conversations?project_id=${projectId}`);
+    const query = standalone
+      ? `ids=${encodeURIComponent(recentChatIds().join(","))}`
+      : `project_id=${encodeURIComponent(projectId)}`;
+    const body = await api<{ conversations: ConversationRow[] }>(`/api/assistant/conversations?${query}`);
     setConversations(body.conversations);
     return body.conversations;
-  }, [projectId]);
+  }, [projectId, standalone]);
 
   const openConversation = useCallback(async (id: string) => {
     setLoadingChat(true);
@@ -88,22 +125,29 @@ export default function Assistant() {
   const createConversation = useCallback(async () => {
     const created = await api<ConversationRow>("/api/assistant/conversations", {
       method: "POST",
-      body: JSON.stringify({ project_id: projectId, title: "New chat", language }),
+      body: JSON.stringify({ project_id: projectId || undefined, title: "New chat", language }),
     });
+    if (standalone) rememberChat(created.id);
     setActiveId(created.id);
     void loadConversations();
     return created.id;
-  }, [projectId, language, loadConversations]);
+  }, [projectId, standalone, language, loadConversations]);
 
   useEffect(() => {
-    if (!projectId) return;
     let cancelled = false;
-    api<Project>(`/api/projects/${projectId}`)
-      .then((proj) => !cancelled && setProject(proj))
-      .catch((err: Error) => !cancelled && setError(err.message));
-    api<{ bugs: BugRow[] }>(`/api/projects/${projectId}/dashboard`)
-      .then((dash) => !cancelled && setBugs(dash.bugs || []))
-      .catch(() => undefined);
+    setMessages([]);
+    setActiveId("");
+    setProject(null);
+    setBugs([]);
+    setLoadingChat(true);
+    if (projectId) {
+      api<Project>(`/api/projects/${projectId}`)
+        .then((proj) => !cancelled && setProject(proj))
+        .catch((err: Error) => !cancelled && showProblem(err.message));
+      api<{ bugs: BugRow[] }>(`/api/projects/${projectId}/dashboard`)
+        .then((dash) => !cancelled && setBugs(dash.bugs || []))
+        .catch(() => undefined);
+    }
     loadConversations()
       .then(async (list) => {
         if (cancelled) return;
@@ -112,7 +156,7 @@ export default function Assistant() {
       })
       .catch((err: Error) => {
         if (cancelled) return;
-        setError(err.message);
+        showProblem(err.message);
         setLoadingChat(false);
       });
     return () => {
@@ -121,6 +165,15 @@ export default function Assistant() {
     // Only when the project changes; a language switch should not reset the chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+
+  // Projects the user can attach from the standalone chat.
+  useEffect(() => {
+    if (!standalone) return;
+    const ids = user ? "" : recentProjectIds().join(",");
+    api<{ projects: { id: string; name: string }[] }>(`/api/me/history?ids=${encodeURIComponent(ids)}`)
+      .then((body) => setMyProjects(body.projects))
+      .catch(() => setMyProjects([]));
+  }, [standalone, user]);
 
   useEffect(() => {
     if (bugParam) setInput((prev) => (prev.includes(bugParam) ? prev : `Explain bug ${bugParam} simply`));
@@ -151,6 +204,8 @@ export default function Assistant() {
     ]);
     setInput("");
 
+    let saved = false;
+    let gotText = false;
     try {
       const convId = activeId || (await createConversation());
       const response = await fetch(`/api/assistant/conversations/${convId}/messages`, {
@@ -158,7 +213,13 @@ export default function Assistant() {
         headers: { "Content-Type": "application/json", ...authHeader() },
         body: JSON.stringify({ content, language, mode, bug_id: bugParam || undefined }),
       });
-      if (!response.ok || !response.body) throw new Error("Could not reach the assistant. Please try again.");
+      if (!response.ok || !response.body) {
+        const detail = await response.json().catch(() => null);
+        throw new Error(
+          (detail && typeof detail.detail === "string" && detail.detail) ||
+            (response.status === 429 ? "You're sending messages quickly. Wait a moment and try again." : "Could not reach the assistant."),
+        );
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -174,12 +235,13 @@ export default function Assistant() {
           if (!line) continue;
           const data = JSON.parse(line.slice(5).trim()) as Record<string, unknown>;
           if (data.type === "token") {
+            gotText = true;
             updateReply(replyId, (msg) => ({ ...msg, content: msg.content + String(data.text || "") }));
           } else if (data.type === "tool") {
             const step = data as unknown as ToolStep;
             updateReply(replyId, (msg) => {
               const steps = [...(msg.tool_steps || [])];
-              const index = steps.findIndex((s) => s.name === step.name && s.label === step.label);
+              const index = steps.findIndex((s) => s.name === step.name && (s.label === step.label || s.status === "running"));
               if (index >= 0) steps[index] = step;
               else steps.push(step);
               return { ...msg, tool_steps: steps };
@@ -188,16 +250,18 @@ export default function Assistant() {
             const patch = data.patch as PatchCard;
             updateReply(replyId, (msg) => ({ ...msg, patches: [...(msg.patches || []), patch] }));
           } else if (data.type === "saved") {
+            saved = true;
             updateReply(replyId, () => ({ ...(data.message as ChatMsg), role: "assistant", streaming: false }));
-            await loadConversations();
+            void loadConversations();
           } else if (data.type === "error") {
-            setError(String(data.detail || "The assistant hit a problem."));
+            throw new Error(String(data.detail || "The assistant hit a problem."));
           }
         }
       }
+      if (!saved) throw new Error("The connection closed before the reply finished. Please try again.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The assistant hit a problem.");
-      setMessages((prev) => prev.filter((msg) => msg.id !== replyId));
+      showProblem(err instanceof Error ? err.message : "The assistant hit a problem.");
+      if (!gotText) setMessages((prev) => prev.filter((msg) => msg.id !== replyId));
     } finally {
       setBusy(false);
       updateReply(replyId, (msg) => ({ ...msg, streaming: false }));
@@ -216,7 +280,7 @@ export default function Assistant() {
       await api(`/api/assistant/messages/${messageId}/feedback`, { method: "POST", body: JSON.stringify({ value }) });
     } catch {
       updateReply(messageId, (msg) => ({ ...msg, feedback: before }));
-      setError("Could not save your feedback.");
+      showProblem("Could not save your feedback.");
     }
   }
 
@@ -231,7 +295,10 @@ export default function Assistant() {
         const form = new FormData();
         form.append("file", file);
         const response = await fetch("/api/projects/extract", { method: "POST", headers: authHeader(), body: form });
-        if (!response.ok) throw new Error("Could not read that file.");
+        if (!response.ok) {
+          const detail = await response.json().catch(() => null);
+          throw new Error((detail && typeof detail.detail === "string" && detail.detail) || "Could not read that file.");
+        }
         const body = (await response.json()) as { files: typeof snippets };
         snippets = body.files;
       }
@@ -239,17 +306,17 @@ export default function Assistant() {
         throw new Error("No code found in that file.");
       }
       setInput((prev) => {
-        const intro = prev.trim() || "Please look at this code:";
+        const intro = prev.trim() || "Please check this code for bugs:";
         let room = MAX_MESSAGE_CHARS - intro.length - 40;
         const blocks = snippets.map((item) => {
           const code = item.content.slice(0, Math.max(0, room));
           room -= code.length + 20;
-          return `\`\`\`${item.language}\n# ${item.path}\n${code}\n\`\`\``;
+          return `\`\`\`${item.language.toLowerCase()}\n# ${item.path}\n${code}\n\`\`\``;
         });
         return `${intro}\n\n${blocks.join("\n\n")}`.slice(0, MAX_MESSAGE_CHARS);
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not attach that file.");
+      showProblem(err instanceof Error ? err.message : "Could not attach that file.");
     } finally {
       setAttaching(false);
     }
@@ -268,7 +335,7 @@ export default function Assistant() {
       (problem) => {
         setListening(false);
         stopListening.current = null;
-        if (problem) setError(problem);
+        if (problem) showProblem(problem);
       },
     );
   }
@@ -291,13 +358,12 @@ export default function Assistant() {
         })),
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update the patch.");
+      showProblem(err instanceof Error ? err.message : "Could not update the patch.");
     }
   }
 
-  async function newChat() {
+  function newChat() {
     setError("");
-    if (activeId && messages.length === 0) return; // already on a fresh chat
     setActiveId("");
     setMessages([]);
     if (window.innerWidth < 768) setSidebarOpen(false);
@@ -316,10 +382,7 @@ export default function Assistant() {
     const list = await loadConversations();
     if (id === activeId) {
       if (list[0]) await openConversation(list[0].id);
-      else {
-        setActiveId("");
-        setMessages([]);
-      }
+      else newChat();
     }
   }
 
@@ -332,6 +395,11 @@ export default function Assistant() {
     setParams({ bug: bug.id });
     setInput(`Explain bug ${bug.id} (${bug.title}) simply`);
     setContextOpen(false);
+  }
+
+  function pickSuggestion(item: Suggestion) {
+    if (item.prefill) setInput(item.prompt);
+    else void sendMessage(item.prompt);
   }
 
   const empty = !loadingChat && messages.length === 0;
@@ -367,7 +435,7 @@ export default function Assistant() {
         coderId={user?.coder_id || ""}
         initials={user ? initials : "G"}
         name={user?.full_name || "Guest"}
-        onNewChat={() => void newChat()}
+        onNewChat={newChat}
         onOpen={selectConversation}
         onRename={(id) => void renameChat(id)}
         onDelete={(id) => void deleteChat(id)}
@@ -384,18 +452,41 @@ export default function Assistant() {
             <MenuIcon className="h-5 w-5" />
           </button>
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{project?.name || "Your project"}</p>
-            <p className="truncate text-xs text-mist">FixPilot Assistant · nothing changes until you approve</p>
+            <p className="truncate text-sm font-semibold">{standalone ? "General chat" : project?.name || "Your project"}</p>
+            <p className="truncate text-xs text-mist">
+              {standalone ? "Paste code or attach a file and I'll check it" : "FixPilot Assistant · nothing changes until you approve"}
+            </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setContextOpen((v) => !v)}
-              className="h-9 whitespace-nowrap rounded-full border border-line bg-panel px-3 text-sm text-ink hover:border-ink xl:hidden"
-              aria-expanded={contextOpen}
-            >
-              Context
-            </button>
+            {standalone ? (
+              <select
+                value=""
+                onChange={(e) => e.target.value && navigate(`/p/${e.target.value}/assistant`)}
+                className="h-9 max-w-[11rem] rounded-full border border-line bg-panel px-3 text-sm text-ink hover:border-ink"
+                aria-label="Chat about one of your projects"
+              >
+                <option value="">{myProjects.length ? "Use a project…" : "No projects yet"}</option>
+                {myProjects.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <Link to="/assistant" className="hidden h-9 items-center rounded-full border border-line bg-panel px-3 text-sm hover:border-ink sm:flex">
+                  General chat
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setContextOpen((v) => !v)}
+                  className="h-9 whitespace-nowrap rounded-full border border-line bg-panel px-3 text-sm text-ink hover:border-ink xl:hidden"
+                  aria-expanded={contextOpen}
+                >
+                  Context
+                </button>
+              </>
+            )}
           </div>
         </header>
 
@@ -432,15 +523,15 @@ export default function Assistant() {
                 transition={{ delay: 0.25, duration: 0.4 }}
                 className="relative mt-6 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2"
               >
-                {SUGGESTIONS.map((chip) => (
+                {suggestions.map((chip) => (
                   <button
                     key={chip.title}
                     type="button"
-                    onClick={() => void sendMessage(chip.prompt)}
+                    onClick={() => pickSuggestion(chip)}
                     className="rounded-2xl border border-line bg-panel px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-ink hover:shadow-card"
                   >
                     <span className="block text-sm font-semibold">{chip.title}</span>
-                    <span className="mt-0.5 block text-xs text-mist">{chip.prompt}</span>
+                    <span className="mt-0.5 block truncate text-xs text-mist">{chip.prompt.split("\n")[0]}</span>
                   </button>
                 ))}
               </motion.div>
@@ -489,63 +580,82 @@ export default function Assistant() {
             </>
           )}
         </LayoutGroup>
+
+        <AnimatePresence>
+          {toast && (
+            <motion.div
+              role="alert"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              className="absolute bottom-24 left-1/2 z-40 flex w-[min(92%,32rem)] -translate-x-1/2 items-start gap-3 rounded-2xl border border-bug bg-panel px-4 py-3 text-sm text-ink shadow-card"
+            >
+              <span aria-hidden="true">⚠️</span>
+              <span className="flex-1">{toast}</span>
+              <button type="button" onClick={() => setToast("")} className="font-medium" aria-label="Dismiss">
+                ✕
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
 
-      {/* Project context: always visible on wide screens, a drawer elsewhere. */}
-      <aside
-        className={`z-30 w-72 shrink-0 flex-col border-l border-line bg-panel ${
-          contextOpen ? "absolute inset-y-0 right-0 flex shadow-card" : "hidden"
-        } xl:static xl:flex xl:shadow-none`}
-      >
-        <div className="flex items-center justify-between border-b border-line px-4 py-3">
-          <div>
-            <p className="text-sm font-semibold">Project context</p>
-            <p className="text-xs text-mist">Tap a bug to ask about it</p>
-          </div>
-          <button type="button" onClick={() => setContextOpen(false)} className="text-sm xl:hidden" aria-label="Close context">
-            ✕
-          </button>
-        </div>
-        <div className="max-h-[45%] overflow-auto border-b border-line p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-mist">Bugs</p>
-          {bugs.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-line p-3 text-xs text-mist">
-              No findings yet.{" "}
-              <Link to={`/p/${projectId}/scan`} className="font-medium text-ink underline">
-                Run a scan
-              </Link>{" "}
-              or ask me to find bugs.
+      {!standalone && (
+        <aside
+          className={`z-30 w-72 shrink-0 flex-col border-l border-line bg-panel ${
+            contextOpen ? "absolute inset-y-0 right-0 flex shadow-card" : "hidden"
+          } xl:static xl:flex xl:shadow-none`}
+        >
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold">Project context</p>
+              <p className="text-xs text-mist">Tap a bug to ask about it</p>
             </div>
-          ) : (
-            <ul className="space-y-1.5">
-              {bugs.map((bug) => (
-                <li key={bug.id}>
-                  <button
-                    type="button"
-                    onClick={() => attachBug(bug)}
-                    className="w-full rounded-xl border border-line bg-cream px-3 py-2 text-left text-xs hover:border-ink"
-                  >
-                    <span className="font-medium">{bug.title}</span>
-                    <span className="mt-0.5 block font-mono text-[11px] text-mist">
-                      {bug.file} · {bug.severity}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-        <div className="flex-1 overflow-auto p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-mist">Files</p>
-          {tree.length > 0 ? (
-            <FileTree nodes={tree} />
-          ) : project ? (
-            <p className="text-xs text-mist">No files to show yet.</p>
-          ) : (
-            <div className="skeleton h-24" />
-          )}
-        </div>
-      </aside>
+            <button type="button" onClick={() => setContextOpen(false)} className="text-sm xl:hidden" aria-label="Close context">
+              ✕
+            </button>
+          </div>
+          <div className="max-h-[45%] overflow-auto border-b border-line p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-mist">Bugs</p>
+            {bugs.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-line p-3 text-xs text-mist">
+                No findings yet.{" "}
+                <Link to={`/p/${projectId}/scan`} className="font-medium text-ink underline">
+                  Run a scan
+                </Link>{" "}
+                or ask me to find bugs.
+              </div>
+            ) : (
+              <ul className="space-y-1.5">
+                {bugs.map((bug) => (
+                  <li key={bug.id}>
+                    <button
+                      type="button"
+                      onClick={() => attachBug(bug)}
+                      className="w-full rounded-xl border border-line bg-cream px-3 py-2 text-left text-xs hover:border-ink"
+                    >
+                      <span className="font-medium">{bug.title}</span>
+                      <span className="mt-0.5 block font-mono text-[11px] text-mist">
+                        {bug.file} · {bug.severity}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="flex-1 overflow-auto p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-mist">Files</p>
+            {tree.length > 0 ? (
+              <FileTree nodes={tree} />
+            ) : project ? (
+              <p className="text-xs text-mist">No files to show yet.</p>
+            ) : (
+              <div className="skeleton h-24" />
+            )}
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

@@ -16,12 +16,14 @@ from sqlalchemy.orm import Session
 
 from app.agent.redaction import redact_text
 from app.agent.runner import run_assistant_turn
+from app.agent.snippets import extract_code
 from app.auth import get_optional_user
 from app.db import SessionLocal, get_session
 from app.ids import new_id
 from app.limiter import RateLimiter
 from app.models import ChatMessage, Conversation, Project, User
-from app.services import user_can_access
+from app.ingest.files import IngestError
+from app.services import SCRATCH_SOURCE, create_scratch_project, replace_scratch_files, user_can_access
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
@@ -33,7 +35,7 @@ MAX_TITLE_CHARS = 120
 
 
 class ConversationIn(BaseModel):
-    project_id: str = Field(min_length=1, max_length=16)
+    project_id: str | None = Field(default=None, max_length=16)  # empty: a standalone chat
     title: str = Field(default="New chat", max_length=MAX_TITLE_CHARS)
     language: str = Field(default="en", pattern="^(en|kn|hi)$")
 
@@ -53,11 +55,6 @@ class FeedbackIn(BaseModel):
     value: int = Field(ge=-1, le=1)  # 1 helpful, -1 not helpful, 0 clears
 
 
-MODE_HINTS = {
-    "explain": "Mode: Explain. Explain clearly and do not propose patches.",
-    "fix": "Mode: Fix. Find the cause and propose a minimal patch for approval.",
-    "review": "Mode: Review. Review the code for bugs, risks and edge cases; list them by severity.",
-}
 
 
 def _project(session: Session, project_id: str, user: User | None) -> Project:
@@ -82,10 +79,11 @@ def _conversation(session: Session, conversation_id: str, user: User | None) -> 
     return row
 
 
-def _conv_dict(row: Conversation) -> dict:
+def _conv_dict(row: Conversation, project: Project | None = None) -> dict:
     return {
         "id": row.id,
         "project_id": row.project_id,
+        "standalone": bool(project and project.source_type == SCRATCH_SOURCE),
         "user_id": row.user_id,
         "title": row.title,
         "language": row.language,
@@ -108,18 +106,30 @@ def _msg_dict(row: ChatMessage) -> dict:
 
 @router.get("/conversations")
 def list_conversations(
-    project_id: str,
+    project_id: str | None = None,
+    ids: str = "",
     session: Session = Depends(get_session),
     user: OptionalUser = None,
 ) -> dict:
-    _project(session, project_id, user)
-    query = select(Conversation).where(Conversation.project_id == project_id)
+    """Chats for one project, or (no project_id) the user's standalone chats.
+
+    Guests have no account to list by, so the browser passes the ids of the chats it started.
+    """
+    if project_id:
+        _project(session, project_id, user)
+        query = select(Conversation).where(Conversation.project_id == project_id)
+    else:
+        query = select(Conversation).join(Project, Project.id == Conversation.project_id)
+        query = query.where(Project.source_type == SCRATCH_SOURCE)
+        if user is None:
+            wanted = [item for item in ids.split(",") if item][:100]
+            query = query.where(Conversation.id.in_(wanted))
     if user is None:
         query = query.where(Conversation.user_id.is_(None))
     elif user.role != "admin":
         query = query.where(Conversation.user_id == user.id)
-    rows = session.scalars(query.order_by(Conversation.updated_at.desc())).all()
-    return {"conversations": [_conv_dict(row) for row in rows]}
+    rows = session.scalars(query.order_by(Conversation.updated_at.desc()).limit(200)).all()
+    return {"conversations": [_conv_dict(row, session.get(Project, row.project_id)) for row in rows]}
 
 
 @router.post("/conversations")
@@ -128,17 +138,20 @@ def create_conversation(
     session: Session = Depends(get_session),
     user: OptionalUser = None,
 ) -> dict:
-    _project(session, body.project_id, user)
+    if body.project_id:
+        project = _project(session, body.project_id, user)
+    else:
+        project = create_scratch_project(session, user)
     row = Conversation(
         id=new_id(),
-        project_id=body.project_id,
+        project_id=project.id,
         user_id=user.id if user else None,
         title=(body.title or "New chat")[:MAX_TITLE_CHARS],
         language=body.language,
     )
     session.add(row)
     session.commit()
-    return _conv_dict(row)
+    return _conv_dict(row, project)
 
 
 @router.get("/conversations/{conversation_id}")
@@ -148,10 +161,16 @@ def get_conversation(
     user: OptionalUser = None,
 ) -> dict:
     row = _conversation(session, conversation_id, user)
+    project = session.get(Project, row.project_id)
     messages = session.scalars(
         select(ChatMessage).where(ChatMessage.conversation_id == row.id).order_by(ChatMessage.created_at)
     ).all()
-    return {**_conv_dict(row), "messages": [_msg_dict(msg) for msg in messages]}
+    return {
+        **_conv_dict(row, project),
+        "project_name": project.name if project else "",
+        "file_count": project.file_count if project else 0,
+        "messages": [_msg_dict(msg) for msg in messages],
+    }
 
 
 @router.patch("/conversations/{conversation_id}")
@@ -209,6 +228,17 @@ def post_message(
     session.add(user_msg)
     session.commit()
 
+    # In a standalone chat, code pasted into the message becomes the chat's project.
+    code_changed = False
+    if project.source_type == SCRATCH_SOURCE:
+        files = extract_code(body.content)
+        if files:
+            try:
+                replace_scratch_files(session, project, files)
+                code_changed = True
+            except IngestError as exc:
+                raise HTTPException(400, str(exc)) from exc
+
     prior = session.scalars(
         select(ChatMessage)
         .where(ChatMessage.conversation_id == row.id, ChatMessage.id != user_msg.id)
@@ -220,8 +250,7 @@ def post_message(
     project_id_value = project.id
     language = row.language
     user_content = content
-    mode_hint = MODE_HINTS.get(body.mode, "")
-    model_content = f"{content}\n\n({mode_hint})" if mode_hint else content
+    mode = body.mode
     user_message_id = user_msg.id
 
     def event_stream() -> Iterator[str]:
@@ -244,9 +273,11 @@ def post_message(
                     db,
                     proj,
                     history,
-                    model_content,
+                    user_content,
                     language=language,
                     emit=emit,
+                    mode=mode,
+                    code_changed=code_changed,
                 )
                 assistant = ChatMessage(
                     id=new_id(),

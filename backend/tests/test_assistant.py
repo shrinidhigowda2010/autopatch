@@ -130,32 +130,21 @@ def test_tool_call_flow_with_mocked_gemini(client):
         json={"project_id": project_id},
     ).json()
 
-    fake_payloads = [
-        {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            {"functionCall": {"name": "explain_bug", "args": {"bug_id": bug_id}}},
-                        ]
-                    }
-                }
-            ]
-        },
-        {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [{"text": f"This bug ({bug_id}) is explained via a mocked tool call."}]
-                    }
-                }
-            ]
-        },
+    replies = [
+        ("", [{"name": "explain_bug", "args": {"bug_id": bug_id}}]),
+        (f"This bug ({bug_id}) is explained via a mocked tool call.", []),
     ]
 
+    def fake_stream(contents, system, tools, allow_tools, on_text):
+        text, calls = replies.pop(0)
+        if text:
+            on_text(text)
+        parts = [{"functionCall": call} for call in calls] or [{"text": text}]
+        return text, calls, parts
+
     with mock.patch("app.agent.runner.settings") as settings, mock.patch(
-        "app.agent.runner._gemini_chat", side_effect=fake_payloads
-    ):
+        "app.agent.runner.gemini_usable", return_value=True
+    ), mock.patch("app.agent.runner._gemini_stream", side_effect=fake_stream):
         settings.gemini_configured = True
         response = client.post(
             f"/api/assistant/conversations/{conv['id']}/messages",

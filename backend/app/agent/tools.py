@@ -42,7 +42,7 @@ TOOL_DECLARATIONS = [
     },
     {
         "name": "run_tests",
-        "description": "Return the latest test-run summary for this project (does not start a new long job).",
+        "description": "Run the edge-case tests before and after the proposed patches, plus the full suite, in a sandbox copy.",
         "parameters": {"type": "object", "properties": {}},
     },
     {
@@ -171,24 +171,48 @@ def _propose_fix(session: Session, project: Project, bug_id: str) -> tuple[dict,
 
 
 def _run_tests(session: Session, project: Project) -> dict:
-    run = session.scalar(select(TestRun).where(TestRun.project_id == project.id).order_by(TestRun.created_at.desc()))
-    if run is None:
+    """Prove the current fixes: generated edge tests before and after the patch, then the full suite.
+
+    Runs in a scratch copy inside the sandbox; the project itself is not touched.
+    """
+    from app.services import finding_from_bug
+    from app.testing.service import prove
+
+    scan = latest_scan(session, project.id)
+    bugs = list(session.scalars(select(Bug).where(Bug.scan_id == scan.id)).all()) if scan else []
+    findings = [finding_from_bug(bug) for bug in bugs if bug.category != "style" and bug.file.endswith(".py")]
+    workspace = workspace_for(project)
+    if not findings and not any(workspace.rglob("test*.py")):
         return {
             "status": "none",
-            "message": "No test run yet. Ask the user to open the Test page, or summarize that tests have not been run.",
+            "label": "No tests to run",
+            "message": "There are no Python bugs or tests to check yet. Paste Python code or run a scan first.",
         }
-    summary = json.loads(run.summary_json or "{}")
-    per_bug = summary.get("per_bug") or []
+    result = prove(workspace, findings)
+    before_failed = not result["generated_before"]["passed"]
+    after_passed = bool(result["generated_passed"])
+    regression = bool(result["regression_passed"])
+    per_bug = result.get("per_bug") or []
     passed = sum(1 for item in per_bug if item.get("passed"))
-    failed = sum(1 for item in per_bug if item.get("passed") is False)
+    lines = ["**Test results** (run in the sandbox on a copy of your code):", ""]
+    if findings:
+        lines.append(
+            f"- Edge-case tests on the **original** code: {'failed ❌, which confirms the bug' if before_failed else 'passed (the bug may be narrower than the tests)'}"
+        )
+        lines.append(f"- The same tests **after the patch**: {'passed ✅' if after_passed else 'still failing ❌'}")
+    lines.append(f"- Full suite after the patch (regression check): {'passed ✅' if regression else 'failed ❌'}")
+    if per_bug:
+        lines.append(f"- Fixes that pass on their own: {passed}/{len(per_bug)}")
+    lines += ["", "The project itself is unchanged until you approve a patch."]
     return {
-        "status": run.status,
-        "safe_to_apply": run.safe_to_apply,
+        "status": "passed" if after_passed and regression else "failed",
+        "label": f"{passed} passed, {len(per_bug) - passed} failed" if per_bug else ("Suite passed" if regression else "Suite failed"),
         "passed": passed,
-        "failed": failed,
-        "regression_passed": summary.get("regression_passed"),
-        "generated_passed": summary.get("generated_passed"),
-        "summary": summary,
+        "failed": len(per_bug) - passed,
+        "generated_failed_before": before_failed,
+        "generated_passed": after_passed,
+        "regression_passed": regression,
+        "message": "\n".join(lines),
     }
 
 

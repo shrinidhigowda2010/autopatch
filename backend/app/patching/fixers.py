@@ -18,6 +18,7 @@ _EMPTY = {
 def propose_fix(source: str, rule_id: str, symbol: str = "", extra: dict | None = None) -> str | None:
     extra = extra or {}
     try:
+        source = expand_one_liners(source)
         tree = ast.parse(source)
     except SyntaxError:
         return None
@@ -44,6 +45,33 @@ def propose_fix(source: str, rule_id: str, symbol: str = "", extra: dict | None 
     except SyntaxError:
         return None
     return updated
+
+
+def expand_one_liners(source: str) -> str:
+    """Move a one-line function body onto its own line, so a guard can go above it.
+
+    def average(x): return sum(x) / len(x)
+    becomes
+    def average(x):
+        return sum(x) / len(x)
+    """
+    tree = ast.parse(source)
+    lines = source.splitlines(keepends=True)
+    one_liners = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and len(node.body) == 1
+        and node.body[0].lineno == node.lineno
+        and node.body[0].end_lineno == node.lineno
+    ]
+    for fn in sorted(one_liners, key=lambda node: node.lineno, reverse=True):
+        index = fn.lineno - 1
+        line = lines[index]
+        indent = line[: len(line) - len(line.lstrip())]
+        head, body = line[: fn.body[0].col_offset].rstrip(), line[fn.body[0].col_offset :]
+        lines[index] = f"{head}\n{indent}    {body}"
+    return "".join(lines)
 
 
 def _functions(tree: ast.AST, symbol: str) -> list[ast.FunctionDef]:

@@ -141,6 +141,29 @@ def ingest_bytes(project_id: str, filename: str, data: bytes) -> Path:
 
 PASTE_ORIGINS = {"paste", "upload", "pdf", "image", "notebook", "docx", "code", "race"}
 
+# Projects made behind the scenes for a standalone assistant chat. They hold the code
+# pasted into that chat and are hidden from project lists.
+SCRATCH_SOURCE = "assistant"
+
+
+def create_scratch_project(session: Session, user: User | None = None) -> Project:
+    project = Project(id=new_id(), name="Assistant chat", source_type=SCRATCH_SOURCE)
+    _attach_owner(project, user)
+    session.add(project)
+    session.flush()
+    source, workspace = project_paths(project.id)
+    source.mkdir(parents=True, exist_ok=True)
+    workspace.mkdir(parents=True, exist_ok=True)
+    return project
+
+
+def replace_scratch_files(session: Session, project: Project, files: list[tuple[str, str]]) -> None:
+    """Swap the chat's code for the newly pasted code. Old findings stay in history."""
+    workspace = write_files(project.id, files)
+    _store_meta(project, workspace)
+    record(session, project.id, "upload", f"Code shared in chat: {', '.join(name for name, _ in files)}.")
+    session.commit()
+
 
 def create_from_files(
     session: Session,
@@ -294,7 +317,7 @@ def risk_level(bug: Bug) -> str:
     return "safe"
 
 
-def run_scan(session: Session, project: Project, user: User | None = None) -> Scan:
+def run_scan(session: Session, project: Project, user: User | None = None, use_gemini: bool = True) -> Scan:
     scan = Scan(
         id=new_id(),
         project_id=project.id,
@@ -307,7 +330,7 @@ def run_scan(session: Session, project: Project, user: User | None = None) -> Sc
     session.commit()
     workspace = workspace_for(project)
     try:
-        report = analyze_project(workspace, sample_id=project.sample_id, use_gemini=True)
+        report = analyze_project(workspace, sample_id=project.sample_id, use_gemini=use_gemini)
     except Exception as exc:  # noqa: BLE001
         log.exception("scan failed")
         scan.status = "error"

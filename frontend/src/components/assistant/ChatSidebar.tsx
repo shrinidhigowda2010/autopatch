@@ -139,11 +139,11 @@ export default function ChatSidebar({
               <Link to="/profile" className="block rounded-xl px-3 py-2 hover:bg-cream">
                 Profile & coder ID
               </Link>
-              <Link to={`/p/${projectId}/dashboard`} className="block rounded-xl px-3 py-2 hover:bg-cream">
-                Project dashboard
+              <Link to={projectId ? `/p/${projectId}/dashboard` : "/dashboard"} className="block rounded-xl px-3 py-2 hover:bg-cream">
+                {projectId ? "Project dashboard" : "Dashboard"}
               </Link>
-              <Link to={`/p/${projectId}/fix`} className="block rounded-xl px-3 py-2 hover:bg-cream">
-                Fix page
+              <Link to={projectId ? `/p/${projectId}/fix` : "/history"} className="block rounded-xl px-3 py-2 hover:bg-cream">
+                {projectId ? "Fix page" : "History"}
               </Link>
               <p className="px-3 py-2 text-xs text-mist">Enter sends · Shift+Enter adds a line</p>
             </div>
