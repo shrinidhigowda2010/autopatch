@@ -7,6 +7,7 @@ is truncated.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import resource
 import subprocess
@@ -61,23 +62,15 @@ def sandbox_env(workdir: Path) -> dict[str, str]:
 
 def _limits(cpu_seconds: int, mem_mb: int) -> None:
     cpu = max(1, cpu_seconds)
-    try:
+    with contextlib.suppress(ValueError, OSError):
         resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 1))
-    except (ValueError, OSError):
-        pass
     mem = mem_mb * 1024 * 1024
-    try:
+    with contextlib.suppress(ValueError, OSError):
         resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
-    except (ValueError, OSError):
-        pass
-    try:
+    with contextlib.suppress(ValueError, OSError):
         resource.setrlimit(resource.RLIMIT_FSIZE, (8_000_000, 8_000_000))
-    except (ValueError, OSError):
-        pass
-    try:
+    with contextlib.suppress(ValueError, OSError):
         resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
-    except (ValueError, OSError):
-        pass
 
 
 def run_in_sandbox(

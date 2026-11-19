@@ -159,7 +159,7 @@ def _fix_mutable(source: str, tree: ast.AST, symbol: str, extra: dict) -> str | 
     arg_name = extra.get("arg")
     kind = extra.get("kind") or "list"
     for fn in _functions(tree, symbol):
-        pairs = list(zip(fn.args.args[-len(fn.args.defaults) :], fn.args.defaults)) if fn.args.defaults else []
+        pairs = list(zip(fn.args.args[-len(fn.args.defaults) :], fn.args.defaults, strict=False)) if fn.args.defaults else []
         for arg, default in pairs:
             if arg_name and arg.arg != arg_name:
                 continue
@@ -217,9 +217,9 @@ def _fix_skip(source: str, tree: ast.AST, symbol: str, extra: dict) -> str | Non
 
 
 def _fix_sql(source: str, tree: ast.AST, symbol: str, extra: dict) -> str | None:
-    from app.analysis.ast_rules import _dynamic_sql_assignments, _expr_is_dynamic_sql, _formatted_names, _is_execute
+    from app.analysis.ast_rules import _dynamic_sql_assignments, _expr_is_dynamic_sql, _is_execute
 
-    scopes = _functions(tree, symbol) or [tree]
+    scopes: list[ast.AST] = [*_functions(tree, symbol)] or [tree]
     for scope in scopes:
         dynamic = _dynamic_sql_assignments(scope)
         for node in ast.walk(scope):
@@ -276,7 +276,7 @@ def _body_line(fn: ast.FunctionDef) -> int:
     first = fn.body[0]
     if (
         isinstance(first, ast.Expr)
-        and isinstance(getattr(first, "value", None), ast.Constant)
+        and isinstance(first.value, ast.Constant)
         and isinstance(first.value.value, str)
         and len(fn.body) > 1
     ):

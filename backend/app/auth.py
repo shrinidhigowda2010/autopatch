@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import secrets
 import string
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -61,7 +61,7 @@ def generate_coder_id(session: Session) -> str:
 
 
 def create_access_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_HOURS)
+    expire = datetime.now(UTC) + timedelta(hours=ACCESS_TOKEN_HOURS)
     return jwt.encode(
         {"sub": user_id, "exp": expire},
         settings.jwt_secret,

@@ -214,6 +214,7 @@ export default function Race() {
               value={code}
               onChange={(event) => setCode(event.target.value)}
               spellCheck={false}
+              aria-label="Code to race"
               rows={14}
               disabled={running}
               className="mt-3 w-full rounded-2xl border border-line bg-panel p-4 font-mono text-sm leading-relaxed"

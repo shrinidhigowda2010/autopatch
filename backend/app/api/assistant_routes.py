@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import queue
 import threading
-from datetime import datetime, timezone
-from typing import Annotated, Iterator
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -20,9 +21,9 @@ from app.agent.snippets import extract_code
 from app.auth import get_optional_user
 from app.db import SessionLocal, get_session
 from app.ids import new_id
+from app.ingest.files import IngestError
 from app.limiter import RateLimiter
 from app.models import ChatMessage, Conversation, Project, User
-from app.ingest.files import IngestError
 from app.services import SCRATCH_SOURCE, create_scratch_project, replace_scratch_files, user_can_access
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
@@ -71,9 +72,8 @@ def _conversation(session: Session, conversation_id: str, user: User | None) -> 
     if row is None:
         raise HTTPException(404, "Conversation not found.")
     _project(session, row.project_id, user)
-    if user is not None and user.role != "admin":
-        if row.user_id and row.user_id != user.id:
-            raise HTTPException(403, "You do not have access to this conversation.")
+    if user is not None and user.role != "admin" and row.user_id and row.user_id != user.id:
+        raise HTTPException(403, "You do not have access to this conversation.")
     if user is None and row.user_id:
         raise HTTPException(403, "Sign in to open this conversation.")
     return row
@@ -138,10 +138,7 @@ def create_conversation(
     session: Session = Depends(get_session),
     user: OptionalUser = None,
 ) -> dict:
-    if body.project_id:
-        project = _project(session, body.project_id, user)
-    else:
-        project = create_scratch_project(session, user)
+    project = _project(session, body.project_id, user) if body.project_id else create_scratch_project(session, user)
     row = Conversation(
         id=new_id(),
         project_id=project.id,
@@ -182,7 +179,7 @@ def rename_conversation(
 ) -> dict:
     row = _conversation(session, conversation_id, user)
     row.title = body.title.strip()[:MAX_TITLE_CHARS]
-    row.updated_at = datetime.now(timezone.utc)
+    row.updated_at = datetime.now(UTC)
     session.commit()
     return _conv_dict(row)
 
@@ -287,7 +284,7 @@ def post_message(
                     tool_steps_json=json.dumps(result.get("tool_steps") or []),
                     patches_json=json.dumps(result.get("patches") or []),
                 )
-                conv.updated_at = datetime.now(timezone.utc)
+                conv.updated_at = datetime.now(UTC)
                 if conv.title == "New chat":
                     conv.title = user_content[:60] + ("…" if len(user_content) > 60 else "")
                 db.add(assistant)

@@ -12,6 +12,8 @@ import re
 from app.analysis.catalog import needs_review, text_for
 from app.analysis.findings import Finding, snippet_around
 
+FunctionNode = ast.FunctionDef | ast.AsyncFunctionDef
+
 _MARK_NAME = re.compile(r"\b(marks?|scores?|grades?)\b", re.I)
 _SECRET_NAME = re.compile(
     r"(password|passwd|secret|api_key|apikey|access_key|private_key|token)",
@@ -104,7 +106,7 @@ def _make(
     )
 
 
-def _scan_function(relpath: str, source: str, fn: ast.FunctionDef) -> list[Finding]:
+def _scan_function(relpath: str, source: str, fn: FunctionNode) -> list[Finding]:
     found: list[Finding] = []
     found.extend(_mutable_defaults(relpath, source, fn))
     found.extend(_divisions(relpath, source, fn))
@@ -114,10 +116,10 @@ def _scan_function(relpath: str, source: str, fn: ast.FunctionDef) -> list[Findi
     return found
 
 
-def _mutable_defaults(relpath: str, source: str, fn: ast.FunctionDef) -> list[Finding]:
+def _mutable_defaults(relpath: str, source: str, fn: FunctionNode) -> list[Finding]:
     found = []
     args = fn.args.args[-len(fn.args.defaults) :] if fn.args.defaults else []
-    for arg, default in zip(args, fn.args.defaults):
+    for arg, default in zip(args, fn.args.defaults, strict=False):
         kind = _mutable_kind(default)
         if not kind:
             continue
@@ -142,13 +144,18 @@ def _mutable_kind(node: ast.AST) -> str:
         return "dict"
     if isinstance(node, ast.Set):
         return "set"
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"list", "dict", "set"}:
-        if not node.args and not node.keywords:
-            return node.func.id
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"list", "dict", "set"}
+        and not node.args
+        and not node.keywords
+    ):
+        return node.func.id
     return ""
 
 
-def _divisions(relpath: str, source: str, fn: ast.FunctionDef) -> list[Finding]:
+def _divisions(relpath: str, source: str, fn: FunctionNode) -> list[Finding]:
     params = {arg.arg for arg in fn.args.args if arg.arg != "self"}
     found = []
     for node in ast.walk(fn):
@@ -220,7 +227,7 @@ def _raises_or_returns(node: ast.If) -> bool:
     return any(isinstance(child, (ast.Raise, ast.Return)) for child in ast.walk(node))
 
 
-def _marks_range(relpath: str, source: str, fn: ast.FunctionDef) -> list[Finding]:
+def _marks_range(relpath: str, source: str, fn: FunctionNode) -> list[Finding]:
     blob = " ".join([fn.name, relpath, *[arg.arg for arg in fn.args.args]])
     if not _MARK_NAME.search(blob):
         return []
@@ -252,9 +259,13 @@ def _for_loops(fn: ast.AST) -> list[ast.For]:
 def _loop_adds_target(loop: ast.For) -> bool:
     target = loop.target.id if isinstance(loop.target, ast.Name) else ""
     for node in ast.walk(loop):
-        if isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add):
-            if isinstance(node.value, ast.Name) and node.value.id == target:
-                return True
+        if (
+            isinstance(node, ast.AugAssign)
+            and isinstance(node.op, ast.Add)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == target
+        ):
+            return True
         if isinstance(node, ast.Assign) and isinstance(node.value, ast.BinOp) and isinstance(node.value.op, ast.Add):
             names = _names(node.value)
             if target in names:
@@ -263,17 +274,14 @@ def _loop_adds_target(loop: ast.For) -> bool:
 
 
 def _target_is_compared(fn: ast.AST, name: str) -> bool:
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Compare) and name in _names(node):
-            return True
-    return False
+    return any(isinstance(node, ast.Compare) and name in _names(node) for node in ast.walk(fn))
 
 
 def _names(node: ast.AST) -> set[str]:
     return {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
 
 
-def _balance_methods(relpath: str, source: str, fn: ast.FunctionDef) -> list[Finding]:
+def _balance_methods(relpath: str, source: str, fn: FunctionNode) -> list[Finding]:
     amount = _amount_arg(fn)
     if fn.name in {"deposit", "credit"} and _balance_update(fn, ast.Add) and not _amount_guard(fn, amount):
         return [
@@ -302,14 +310,14 @@ def _balance_methods(relpath: str, source: str, fn: ast.FunctionDef) -> list[Fin
     return []
 
 
-def _amount_arg(fn: ast.FunctionDef) -> str:
+def _amount_arg(fn: FunctionNode) -> str:
     for arg in fn.args.args:
         if arg.arg != "self":
             return arg.arg
     return "amount"
 
 
-def _balance_update(fn: ast.FunctionDef, op: type) -> bool:
+def _balance_update(fn: FunctionNode, op: type) -> bool:
     for node in ast.walk(fn):
         if isinstance(node, ast.AugAssign) and isinstance(node.op, op) and _is_balance(node.target):
             return True
@@ -327,14 +335,11 @@ def _is_balance(node: ast.AST | None) -> bool:
     return isinstance(node, ast.Attribute) and node.attr == "balance"
 
 
-def _amount_guard(fn: ast.FunctionDef, amount: str) -> bool:
-    for node in ast.walk(fn):
-        if isinstance(node, ast.Compare) and amount in _names(node):
-            return True
-    return False
+def _amount_guard(fn: FunctionNode, amount: str) -> bool:
+    return any(isinstance(node, ast.Compare) and amount in _names(node) for node in ast.walk(fn))
 
 
-def _overdraft_guard(fn: ast.FunctionDef, amount: str) -> bool:
+def _overdraft_guard(fn: FunctionNode, amount: str) -> bool:
     for node in ast.walk(fn):
         if not isinstance(node, ast.Compare):
             continue
@@ -344,7 +349,7 @@ def _overdraft_guard(fn: ast.FunctionDef, amount: str) -> bool:
     return False
 
 
-def _off_by_one(relpath: str, source: str, fn: ast.FunctionDef) -> list[Finding]:
+def _off_by_one(relpath: str, source: str, fn: FunctionNode) -> list[Finding]:
     found = []
     for loop in _for_loops(fn):
         if not isinstance(loop.target, ast.Name):
@@ -427,7 +432,7 @@ def _is_name(node: ast.AST, name: str) -> bool:
 
 
 def _scan_secret_assign(relpath: str, source: str, node: ast.Assign) -> list[Finding]:
-    found = []
+    found: list[Finding] = []
     if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
         return found
     name = node.targets[0].id
@@ -514,17 +519,18 @@ def _expr_is_dynamic_sql(node: ast.AST) -> bool:
         return any(isinstance(part, ast.FormattedValue) for part in node.values)
     if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
         return True
-    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
-        return True
-    return False
+    return bool(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format")
 
 
 def _formatted_names(node: ast.AST) -> list[str]:
     names: list[str] = []
     for child in ast.walk(node):
-        if isinstance(child, ast.FormattedValue) and isinstance(child.value, ast.Name):
-            if child.value.id not in names:
-                names.append(child.value.id)
+        if (
+            isinstance(child, ast.FormattedValue)
+            and isinstance(child.value, ast.Name)
+            and child.value.id not in names
+        ):
+            names.append(child.value.id)
     return names
 
 
@@ -536,10 +542,7 @@ def _enclosing_function(tree: ast.AST, target: ast.AST) -> str:
 
 
 def _contains(parent: ast.AST, target: ast.AST) -> bool:
-    for child in ast.walk(parent):
-        if child is target:
-            return True
-    return False
+    return any(child is target for child in ast.walk(parent))
 
 
 def _unique_rules(found: list[Finding]) -> list[Finding]:

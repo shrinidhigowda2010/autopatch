@@ -32,6 +32,4 @@ def redact_path_name(path: str) -> bool:
     name = lowered.rsplit("/", 1)[-1]
     if name in {".env", ".env.local", ".env.production", "credentials.json", "secrets.yaml", "secrets.yml"}:
         return True
-    if name.endswith(".pem") or name.endswith(".key"):
-        return True
-    return False
+    return bool(name.endswith(".pem") or name.endswith(".key"))

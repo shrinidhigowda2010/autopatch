@@ -12,9 +12,9 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app import __version__
 from app.api.arena_routes import router as arena_router
-from app.api.me_routes import router as me_router
 from app.api.assistant_routes import router as assistant_router
 from app.api.auth_routes import router as auth_router
+from app.api.me_routes import router as me_router
 from app.api.routes import router
 from app.config import settings
 from app.db import init_db

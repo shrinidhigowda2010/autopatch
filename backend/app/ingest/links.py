@@ -75,7 +75,7 @@ def check_public(url: str) -> None:
     except (socket.gaierror, UnicodeError, ValueError) as exc:
         raise IngestError("FixPilot couldn't find that website.") from exc
     for info in infos:
-        address = ipaddress.ip_address(info[4][0].split("%")[0])
+        address = ipaddress.ip_address(str(info[4][0]).split("%")[0])
         if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
             address = address.ipv4_mapped
         if not address.is_global or address.is_multicast or address.is_reserved:

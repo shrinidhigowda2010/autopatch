@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
@@ -11,8 +12,8 @@ from sqlalchemy.orm import Session
 
 from app.auth import (
     check_login_rate,
-    create_access_token,
     coder_id_candidates,
+    create_access_token,
     generate_coder_id,
     hash_password,
     require_user,
@@ -42,7 +43,7 @@ class LoginIn(BaseModel):
 
 
 def _user_public(user: User, session: Session | None = None) -> dict:
-    payload = {
+    payload: dict[str, Any] = {
         "id": user.id,
         "coder_id": user.coder_id,
         "full_name": user.full_name,
@@ -97,7 +98,7 @@ def login(body: LoginIn, request: Request, session: Session = Depends(get_sessio
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email/Coder ID or password.",
         )
-    user.last_login = datetime.now(timezone.utc)
+    user.last_login = datetime.now(UTC)
     session.commit()
     token = create_access_token(user.id)
     return {

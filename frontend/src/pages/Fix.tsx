@@ -84,6 +84,8 @@ export default function Fix() {
       setAskAnswer("");
       setAlternative(null);
     }
+    // Reset the card only when a different fix comes up, not when the same fix re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPatch?.id]);
 
   useEffect(() => {

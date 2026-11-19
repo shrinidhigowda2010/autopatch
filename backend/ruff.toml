@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+# FastAPI's Depends()/File() in defaults is the documented pattern.
+ignore = ["B008", "E501"]
+
+[lint.per-file-ignores]
+"tests/*" = ["E501"]

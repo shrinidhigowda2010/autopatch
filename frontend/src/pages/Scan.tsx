@@ -104,7 +104,7 @@ export default function Scan() {
           <ul className="mt-2 space-y-1 font-mono text-xs text-mist">
             {project.graph.edges.length === 0 && <li>These files don't import each other.</li>}
             {project.graph.edges.map((edge) => (
-              <li key={`${edge.from}-${edge.to}`}>{edge.from} → {edge.to} <span className="text-paper">({edge.kind})</span></li>
+              <li key={`${edge.from}-${edge.to}`}>{edge.from} → {edge.to} <span className="text-mist">({edge.kind})</span></li>
             ))}
           </ul>
         </section>

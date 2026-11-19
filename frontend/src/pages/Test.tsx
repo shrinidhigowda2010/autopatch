@@ -51,7 +51,7 @@ export default function TestPage() {
   const tone: Record<string, string> = {
     pass: "text-fixed",
     fail: "text-bug",
-    info: "text-paper",
+    info: "text-ink",
   };
 
   return (
@@ -71,7 +71,7 @@ export default function TestPage() {
       )}
       <ol className="mt-6 space-y-2">
         {events.map((event, index) => (
-          <li key={event.id ?? index} className={tone[event.status] || "text-paper"}>
+          <li key={event.id ?? index} className={tone[event.status] || "text-ink"}>
             {event.message}
           </li>
         ))}

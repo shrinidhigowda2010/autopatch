@@ -153,10 +153,7 @@ def extract_upload(filename: str, data: bytes) -> Extraction:
 
 
 def _from_text(name: str, text: str) -> Extraction:
-    if suffix_known(name):
-        language = language_for(name)
-    else:
-        language = guess_language(text)
+    language = language_for(name) if suffix_known(name) else guess_language(text)
     return Extraction(kind="code", files=[ExtractedFile(name, _clip(text), language)])
 
 
@@ -276,7 +273,7 @@ def split_code_blocks(text: str, stem: str) -> list[tuple[str, str]]:
 
     blocks: list[list[str]] = []
     current: list[str] = []
-    for line, kind in zip(lines, kinds):
+    for line, kind in zip(lines, kinds, strict=False):
         if kind == "prose":
             if current:
                 blocks.append(current)
@@ -329,13 +326,14 @@ def _from_image(name: str, data: bytes, kind: str) -> Extraction:
         engine_note = "Code read from the image by Gemini vision. Check it before scanning."
     except GeminiError as exc:
         log.info("gemini vision unavailable: %s", exc)
-        result = _ocr(payload)
-        if result is None:
+        ocr = _ocr(payload)
+        if ocr is None:
             raise IngestError(
                 "Reading code from images needs Gemini, which isn't reachable right now. "
                 "Paste the code as text instead.",
                 503,
             ) from exc
+        result = ocr
         engine_note = "Code read with OCR because Gemini isn't reachable. Check the spacing before scanning."
 
     code = (result.get("code") or "").replace("\r\n", "\n")

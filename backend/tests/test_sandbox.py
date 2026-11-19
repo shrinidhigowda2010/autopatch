@@ -1,9 +1,9 @@
 """The sandbox has to stop a runaway program."""
 
+import sys
 from pathlib import Path
 
 from app.sandbox.runner import run_in_sandbox
-import sys
 
 
 def test_infinite_loop_is_stopped(tmp_path: Path):

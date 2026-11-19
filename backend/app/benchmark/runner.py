@@ -129,8 +129,8 @@ def _fixes_pass(sample: Path, findings: list) -> bool:
                 return False
             path.write_text(updated, encoding="utf-8")
         spec = importlib.util.spec_from_file_location(f"oracle_{sample.name}", sample / "oracle.py")
+        assert spec is not None and spec.loader is not None
         oracle = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
         spec.loader.exec_module(oracle)
         if oracle.check(work):
             return False

@@ -129,9 +129,13 @@ def param_kinds(target: Target) -> dict[str, str]:
             for side in (node.left, node.right):
                 if isinstance(side, ast.Name) and kinds.get(side.id) == "unknown":
                     kinds[side.id] = "number"
-        elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in kinds:
-            if node.attr in {"lower", "upper", "strip", "split", "startswith", "endswith", "encode", "replace"}:
-                kinds[node.value.id] = "text"
+        elif (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in kinds
+            and node.attr in {"lower", "upper", "strip", "split", "startswith", "endswith", "encode", "replace"}
+        ):
+            kinds[node.value.id] = "text"
     for name, kind in kinds.items():
         if kind != "unknown":
             continue
@@ -321,7 +325,7 @@ def _refused(case: AttackCase, outcome: dict) -> dict:
 
 def score(target: Target, cases: list[AttackCase], old: list[dict], new: list[dict]) -> dict:
     rows = []
-    for case, before, after in zip(cases, old, new):
+    for case, before, after in zip(cases, old, new, strict=False):
         before, after = _refused(case, before), _refused(case, after)
         if before["status"] == "ok" and after["status"] == "rejected":
             # The old code returned a value for input the fix now refuses: a silent wrong answer.

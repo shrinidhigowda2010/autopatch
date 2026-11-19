@@ -13,8 +13,8 @@ import time
 
 import httpx
 
-from app.analysis.catalog import needs_review
 from app.agent.redaction import redact_text
+from app.analysis.catalog import needs_review
 from app.analysis.findings import Finding, snippet_around
 from app.config import settings
 
@@ -162,7 +162,7 @@ def read_code_from_image(data: bytes, mime: str) -> dict:
     """Ask Gemini vision to transcribe the code in an image. Returns {filename, code}."""
     if not settings.gemini_configured:
         raise GeminiError("GEMINI_API_KEY is not set")
-    parts = [
+    parts: list[dict] = [
         {"text": _VISION_PROMPT},
         {"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode("ascii")}},
     ]

@@ -58,3 +58,13 @@ def test_gemini_repeat_of_a_rule_finding_becomes_one_card():
         "Closing twice crashes",
     ]
     assert merged[0].source == "ast+gemini"
+
+
+def test_errors_are_clean_json():
+    client = TestClient(app)
+    missing = client.get("/api/projects/does-not-exist")
+    assert missing.status_code == 404 and missing.json() == {"detail": "Project not found."}
+    invalid = client.post("/api/projects/paste", json={})
+    assert invalid.status_code == 422 and "Traceback" not in invalid.text
+    unknown_api = client.get("/api/no-such-endpoint")
+    assert unknown_api.status_code == 404 and "detail" in unknown_api.json()

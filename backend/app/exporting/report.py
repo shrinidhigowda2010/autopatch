@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 import zipfile  # noqa: F401 — used below via ZipFile, keep import explicit
-from pathlib import Path
 
 from fpdf import FPDF
 from sqlalchemy import select

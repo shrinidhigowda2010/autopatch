@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -202,10 +202,7 @@ def create_from_link(session: Session, url: str, user: User | None = None) -> Pr
     _attach_owner(project, user)
     session.add(project)
     session.flush()
-    if files is not None:
-        workspace = write_files(project.id, files)
-    else:
-        workspace = ingest_bytes(project.id, link.filename, data)
+    workspace = write_files(project.id, files) if files is not None else ingest_bytes(project.id, link.filename, data)
     _store_meta(project, workspace)
     _ensure_v0(session, project)
     record(session, project.id, "upload", f"Imported {url.strip()[:200]}.")
@@ -341,7 +338,7 @@ def run_scan(
         log.exception("scan failed")
         scan.status = "error"
         scan.error = str(exc)
-        scan.finished_at = datetime.now(timezone.utc)
+        scan.finished_at = datetime.now(UTC)
         record(session, project.id, "scan_error", f"Scan failed: {exc}")
         session.commit()
         return scan
@@ -380,7 +377,7 @@ def run_scan(
         _propose_patch(session, project, bug, workspace, user)
         record(session, project.id, "bug_found", finding.title, bug_id=bug.id)
     scan.status = "complete"
-    scan.finished_at = datetime.now(timezone.utc)
+    scan.finished_at = datetime.now(UTC)
     record(
         session,
         project.id,
@@ -581,9 +578,10 @@ def decide_patch(
                 updated = edited_code
         decision_action = "edited"
     else:
-        updated = propose_fix(previous_text, bug.rule_id, bug.symbol, json.loads(bug.extra_json or "{}"))
-        if not updated:
+        fixed = propose_fix(previous_text, bug.rule_id, bug.symbol, json.loads(bug.extra_json or "{}"))
+        if not fixed:
             raise IngestError("The patch no longer applies. The file may already be fixed.")
+        updated = fixed
         decision_action = "approved" if normalized == "approved" else normalized
 
     _write_patch_content(path, updated)
@@ -652,8 +650,8 @@ def decide_patch(
 
 def regenerate_fix_after_rejection(session: Session, patch: Patch, reason: str) -> dict:
     """Ask Gemini for an alternative explanation/fix hint after a rejection with a reason."""
-    from app.llm.gemini import GeminiError, ask_gemini
     from app.config import settings
+    from app.llm.gemini import GeminiError, ask_gemini
 
     bug = session.get(Bug, patch.bug_id)
     if bug is None:
@@ -980,9 +978,8 @@ def health_score(session: Session, project: Project, scan: Scan | None) -> dict:
     remaining = 0
     for bug in bugs:
         patch = session.scalar(select(Patch).where(Patch.bug_id == bug.id).order_by(Patch.created_at.desc()))
-        if patch is None or patch.status != "applied":
-            if bug.category != "style":
-                remaining += weight.get(bug.severity, 5)
+        if (patch is None or patch.status != "applied") and bug.category != "style":
+            remaining += weight.get(bug.severity, 5)
     after = max(0, 100 - remaining)
     return {"before": before, "after": after}
 
@@ -993,7 +990,7 @@ def latest_scan(session: Session, project_id: str) -> Scan | None:
 
 def user_can_access(project: Project, user: User | None) -> bool:
     if user is None:
-        return True  # guest / demo: opaque project id is the capability
+        return True  # guests: the unguessable project id is the capability
     if user.role == "admin":
         return True
     if project.user_id is None or project.is_guest:
@@ -1010,7 +1007,11 @@ def run_tests_job(run_id: str) -> None:
         if run is None:
             return
         project = session.get(Project, run.project_id)
-        scan = latest_scan(session, project.id) if project else None
+        if project is None:
+            run.status = "error"
+            session.commit()
+            return
+        scan = latest_scan(session, project.id)
         bugs = []
         if scan:
             bugs = list(session.scalars(select(Bug).where(Bug.scan_id == scan.id)).all())
@@ -1040,7 +1041,7 @@ def run_tests_job(run_id: str) -> None:
         run.summary_json = json.dumps(summary)
         run.safe_to_apply = bool(summary.get("generated_passed") and summary.get("regression_passed"))
         run.status = "passed" if run.safe_to_apply else "failed"
-        run.finished_at = datetime.now(timezone.utc)
+        run.finished_at = datetime.now(UTC)
         record(session, project.id, "test_finished", f"Test run {run.status}.")
         session.commit()
     except Exception as exc:  # noqa: BLE001
@@ -1049,7 +1050,7 @@ def run_tests_job(run_id: str) -> None:
         if run:
             run.status = "error"
             run.summary_json = json.dumps({"error": str(exc)})
-            run.finished_at = datetime.now(timezone.utc)
+            run.finished_at = datetime.now(UTC)
             session.commit()
     finally:
         session.close()

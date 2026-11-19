@@ -145,7 +145,7 @@ def guess_language(text: str) -> str:
         scores["TypeScript"] += scores["JavaScript"]
     if not scores:
         return "Text"
-    return max(scores, key=scores.get)
+    return max(scores, key=lambda name: scores[name])
 
 
 def extension_for(language: str) -> str:

@@ -6,6 +6,7 @@ import ast
 
 
 def node_span(source: str, node: ast.AST) -> tuple[int, int]:
+    """Character offsets of a node that carries position info (any expr or stmt)."""
     lines = source.splitlines(keepends=True)
 
     def offset(lineno: int, col: int) -> int:
@@ -14,9 +15,10 @@ def node_span(source: str, node: ast.AST) -> tuple[int, int]:
         fragment = line.encode("utf-8")[:col].decode("utf-8", errors="ignore")
         return passed + len(fragment)
 
+    start_line: int = getattr(node, "lineno", 1)
     return (
-        offset(node.lineno, node.col_offset),
-        offset(node.end_lineno or node.lineno, node.end_col_offset or 0),
+        offset(start_line, getattr(node, "col_offset", 0)),
+        offset(getattr(node, "end_lineno", None) or start_line, getattr(node, "end_col_offset", None) or 0),
     )
 
 
@@ -49,9 +51,9 @@ def ensure_import(source: str, module: str) -> str:
         if isinstance(node, ast.ImportFrom) and node.module == module:
             return source
     insert_at = 0
-    if tree.body and isinstance(tree.body[0], ast.Expr) and isinstance(getattr(tree.body[0], "value", None), ast.Constant):
-        if isinstance(tree.body[0].value.value, str):
-            insert_at = tree.body[0].end_lineno or 1
+    first = tree.body[0] if tree.body else None
+    if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+        insert_at = first.end_lineno or 1
     lines = source.splitlines(keepends=True)
     lines.insert(insert_at, f"import {module}\n")
     if insert_at == 0 or not lines[insert_at].endswith("\n"):

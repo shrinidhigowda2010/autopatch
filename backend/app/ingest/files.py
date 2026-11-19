@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from app.config import settings
+
 SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", ".idea", ".vscode"}
 
 

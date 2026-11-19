@@ -49,7 +49,7 @@ export default function BugPage() {
       <section>
         <h2 className="text-sm uppercase tracking-wide text-mist">Root cause</h2>
         <p className="mt-2">{explanationFor(prefs.studentMode, prefs.language, bug)}</p>
-        <p className="mt-3 text-sm text-mist"><span className="text-paper">What triggers it. </span>{bug.trigger}</p>
+        <p className="mt-3 text-sm text-mist"><span className="font-medium text-ink">What triggers it: </span>{bug.trigger}</p>
       </section>
       <section>
         <h2 className="text-sm uppercase tracking-wide text-mist">Suggested patch</h2>
@@ -84,7 +84,7 @@ export default function BugPage() {
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <SeverityBadge severity={confidence.severity} />
           <span>Confidence {percent(confidence.confidence)}</span>
-          {confidence.needs_human_review && <span className="text-amber">needs human review</span>}
+          {confidence.needs_human_review && <span className="text-amber">worth a second look</span>}
         </div>
         <p className="mt-2 text-sm">{confidence.impact}</p>
       </section>

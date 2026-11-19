@@ -13,12 +13,12 @@ export default {
         // legacy aliases remapped for gradual migration
         lime: "#111111",
         coral: "#C0392B",
-        amber: "#B9770E",
+        amber: "#8A5A00",
         good: "#1E8449",
         sky: "#3A3A3A",
         bug: "#C0392B",
         fixed: "#1E8449",
-        review: "#B9770E",
+        review: "#8A5A00",
       },
       fontFamily: {
         sans: ["Inter", "Segoe UI", "Helvetica Neue", "sans-serif"],

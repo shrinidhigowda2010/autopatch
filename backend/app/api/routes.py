@@ -47,7 +47,6 @@ from app.services import (
     workspace_for,
 )
 
-
 router = APIRouter(prefix="/api")
 
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
@@ -243,7 +242,7 @@ def samples() -> list[dict]:
 @router.get("/projects")
 def list_projects(session: Session = Depends(get_session), user: OptionalUser = None) -> list[dict]:
     if user is None:
-        # Guest / demo: do not expose other people's saved projects.
+        # Guests: do not expose other people's saved projects.
         return []
     if user.role == "admin":
         rows = session.scalars(

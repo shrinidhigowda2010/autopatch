@@ -105,6 +105,8 @@ def debate(
 
     def work(db: Session) -> Iterator[dict]:
         patch = db.get(Patch, patch_id)
+        if patch is None:
+            raise IngestError("That fix no longer exists.", 404)
         context = patch_context(db, patch)
         evidence = latest_test_evidence(db, context.bug)
         others = [

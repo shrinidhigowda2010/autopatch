@@ -6,7 +6,7 @@ sends the ids of projects it opened in this session.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -77,9 +77,9 @@ def overview(ids: str = "", session: Session = Depends(get_session), user: Optio
             }
         )
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     for project in projects:
-        scan = latest.get(project.id)
+        last = latest.get(project.id)
         rows.append(
             {
                 "id": project.id,
@@ -87,9 +87,9 @@ def overview(ids: str = "", session: Session = Depends(get_session), user: Optio
                 "source_type": project.source_type,
                 "created_at": project.created_at.isoformat(),
                 "scans": scan_count.get(project.id, 0),
-                "bugs": bugs_per_scan.get(scan.id, 0) if scan else 0,
-                "health": health[project.id]["after"] if scan else None,
-                "last_scan_at": scan.started_at.isoformat() if scan else None,
+                "bugs": bugs_per_scan.get(last.id, 0) if last else 0,
+                "health": health[project.id]["after"] if last else None,
+                "last_scan_at": last.started_at.isoformat() if last else None,
             }
         )
     scored = [row["health"] for row in rows if row["health"] is not None]

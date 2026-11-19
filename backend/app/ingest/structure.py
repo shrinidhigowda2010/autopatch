@@ -14,7 +14,7 @@ _LANG = LANGUAGES
 
 def describe_project(root: Path) -> dict:
     files = [path for path in root.rglob("*") if path.is_file() and "__pycache__" not in path.parts]
-    languages = Counter()
+    languages: Counter[str] = Counter()
     for path in files:
         languages[_LANG.get(path.suffix.lower(), "Other")] += 1
     return {
@@ -28,7 +28,7 @@ def describe_project(root: Path) -> dict:
 
 
 def _tree(root: Path, directory: Path) -> list[dict]:
-    nodes = []
+    nodes: list[dict] = []
     for path in sorted(directory.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
         if path.name in {"__pycache__", ".git", "node_modules", ".venv"}:
             continue
@@ -60,9 +60,9 @@ def _dependencies(root: Path) -> list[dict]:
     if pyproject.is_file():
         for line in pyproject.read_text(encoding="utf-8", errors="replace").splitlines():
             stripped = line.strip().strip(",").strip('"').strip("'")
-            if stripped and not stripped.startswith("[") and not stripped.startswith("#"):
-                if any(op in stripped for op in ("==", ">=", "~=")):
-                    found.append({"name": stripped, "source": "pyproject.toml"})
+            is_entry = stripped and not stripped.startswith(("[", "#"))
+            if is_entry and any(op in stripped for op in ("==", ">=", "~=")):
+                found.append({"name": stripped, "source": "pyproject.toml"})
     return found
 
 

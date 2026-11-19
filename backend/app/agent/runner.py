@@ -249,33 +249,35 @@ def _gemini_stream(
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent"
         streamed = False
         try:
-            with httpx.Client(timeout=httpx.Timeout(CHAT_TIMEOUT_S, connect=5.0)) as client:
-                with client.stream("POST", url, params={"key": settings.gemini_api_key, "alt": "sse"}, json=body) as resp:
-                    if resp.status_code in {401, 403}:
-                        resp.read()
-                        mark_key_rejected(google_error_text(resp))
-                        raise GeminiError(f"{model} refused the API key ({resp.status_code})")
-                    if resp.status_code >= 400:
-                        mark_failed(model)
-                        errors.append(f"{model} returned {resp.status_code}")
+            with (
+                httpx.Client(timeout=httpx.Timeout(CHAT_TIMEOUT_S, connect=5.0)) as client,
+                client.stream("POST", url, params={"key": settings.gemini_api_key, "alt": "sse"}, json=body) as resp,
+            ):
+                if resp.status_code in {401, 403}:
+                    resp.read()
+                    mark_key_rejected(google_error_text(resp))
+                    raise GeminiError(f"{model} refused the API key ({resp.status_code})")
+                if resp.status_code >= 400:
+                    mark_failed(model)
+                    errors.append(f"{model} returned {resp.status_code}")
+                    continue
+                texts: list[str] = []
+                calls: list[dict] = []
+                parts: list[dict] = []
+                for line in resp.iter_lines():
+                    if not line.startswith("data:"):
                         continue
-                    texts: list[str] = []
-                    calls: list[dict] = []
-                    parts: list[dict] = []
-                    for line in resp.iter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        chunk = json.loads(line[5:].strip() or "{}")
-                        candidate = (chunk.get("candidates") or [{}])[0]
-                        for part in (candidate.get("content") or {}).get("parts") or []:
-                            parts.append(part)
-                            if part.get("functionCall"):
-                                calls.append(part["functionCall"])
-                            elif part.get("text") and not part.get("thought"):
-                                streamed = True
-                                texts.append(part["text"])
-                                on_text(part["text"])
-                    return "".join(texts), calls, parts
+                    chunk = json.loads(line[5:].strip() or "{}")
+                    candidate = (chunk.get("candidates") or [{}])[0]
+                    for part in (candidate.get("content") or {}).get("parts") or []:
+                        parts.append(part)
+                        if part.get("functionCall"):
+                            calls.append(part["functionCall"])
+                        elif part.get("text") and not part.get("thought"):
+                            streamed = True
+                            texts.append(part["text"])
+                            on_text(part["text"])
+                return "".join(texts), calls, parts
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             # A slow reply is often a one-off, so a timeout only benches the model briefly.
             mark_failed(model, TIMEOUT_COOLDOWN_S if isinstance(exc, httpx.TimeoutException) else COOLDOWN_S)
