@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -62,7 +63,11 @@ def other_code_files(root: Path) -> list[Path]:
     return found
 
 
-def analyze_project(root: Path, sample_id: str | None = None, use_gemini: bool = True) -> ScanReport:
+def analyze_project(
+    root: Path, sample_id: str | None = None, use_gemini: bool = True, ai_wait_s: float | None = None
+) -> ScanReport:
+    """ai_wait_s caps how long to wait for Gemini once the static tools are done (Python only),
+    for flows like the Repair Race where speed matters more than a second opinion."""
     py_files = python_files(root)
     ast_found: list[Finding] = []
     sources: dict[str, str] = {}
@@ -89,8 +94,14 @@ def analyze_project(root: Path, sample_id: str | None = None, use_gemini: bool =
         gemini_error = ""
         if ai_job is not None:
             try:
-                groups.append(ai_job.result())
+                wait = ai_wait_s if (ai_wait_s is not None and py_files) else None
+                groups.append(ai_job.result(timeout=wait))
                 notes.append("gemini finished")
+            except FutureTimeout:
+                gemini_error = "Gemini was still thinking"
+                notes.append("Gemini was still thinking, so static analysis finished the scan")
+                if sample_id:
+                    mode = "demo"
             except GeminiError as exc:
                 gemini_error = str(exc)
                 notes.append("Gemini unavailable right now, static analysis did the scan")

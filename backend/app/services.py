@@ -317,7 +317,13 @@ def risk_level(bug: Bug) -> str:
     return "safe"
 
 
-def run_scan(session: Session, project: Project, user: User | None = None, use_gemini: bool = True) -> Scan:
+def run_scan(
+    session: Session,
+    project: Project,
+    user: User | None = None,
+    use_gemini: bool = True,
+    ai_wait_s: float | None = None,
+) -> Scan:
     scan = Scan(
         id=new_id(),
         project_id=project.id,
@@ -330,7 +336,7 @@ def run_scan(session: Session, project: Project, user: User | None = None, use_g
     session.commit()
     workspace = workspace_for(project)
     try:
-        report = analyze_project(workspace, sample_id=project.sample_id, use_gemini=use_gemini)
+        report = analyze_project(workspace, sample_id=project.sample_id, use_gemini=use_gemini, ai_wait_s=ai_wait_s)
     except Exception as exc:  # noqa: BLE001
         log.exception("scan failed")
         scan.status = "error"

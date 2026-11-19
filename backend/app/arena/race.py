@@ -24,6 +24,7 @@ from app.testing.generate import render_tests
 
 _SEVERITY = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 _TEST_FILE = "_fixpilot_race_test.py"
+RACE_AI_WAIT_S = 6.0
 
 
 def race_filename(code: str, filename: str = "") -> str:
@@ -42,7 +43,8 @@ def run_race(session: Session, code: str, filename: str = "", user_id: str | Non
     project = create_from_files(session, "Repair race", [(name, code)], origin="race", user=user)
     yield {"type": "stage", "stage": "scanning", "t": stamp(), "project_id": project.id}
 
-    scan = run_scan(session, project, user=user)
+    # The clock is running: give Gemini a few seconds after the static tools, then go on without it.
+    scan = run_scan(session, project, user=user, ai_wait_s=RACE_AI_WAIT_S)
     bugs = [
         bug
         for bug in session.scalars(select(Bug).where(Bug.scan_id == scan.id)).all()
