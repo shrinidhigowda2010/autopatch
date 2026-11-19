@@ -32,7 +32,9 @@ class Settings(BaseSettings):
     max_files: int = 400
     max_unzip_mb: int = 32
 
-    sandbox_timeout_s: int = 20
+    # Wall-clock limit per sandboxed test run. The free cloud host can be slow under load,
+    # and a timeout would wrongly undo a good fix, so leave generous headroom.
+    sandbox_timeout_s: int = 45
     sandbox_mem_mb: int = 512
     rate_limit_per_minute: int = 40
     app_env: str = "development"
