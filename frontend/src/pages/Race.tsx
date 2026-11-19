@@ -125,7 +125,7 @@ export default function Race() {
         <Link to="/" aria-label="FixPilot home">
           <Logo className="h-9 w-auto" />
         </Link>
-        <p className="font-mono text-xs uppercase tracking-[0.25em] text-mist">Live Repair Race</p>
+        <p className="hidden font-mono text-xs uppercase tracking-[0.25em] text-mist sm:block">Live Repair Race</p>
         <Link to="/upload" className="text-sm underline">
           Exit
         </Link>

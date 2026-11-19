@@ -44,7 +44,7 @@ const steps = [
 ] as const;
 
 function navClass(active: boolean): string {
-  return `rounded-2xl px-3 py-2 text-sm transition ${active ? "bg-ink text-cream shadow-emboss" : "text-ink hover:bg-panel"}`;
+  return `shrink-0 whitespace-nowrap rounded-2xl px-3 py-2 text-sm transition ${active ? "bg-ink text-cream shadow-emboss" : "text-ink hover:bg-panel"}`;
 }
 
 export default function Shell() {
