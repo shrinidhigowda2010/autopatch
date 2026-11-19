@@ -1,0 +1,84 @@
+{
+  "projects": [
+    {
+      "id": "bank_balance",
+      "title": "Bank balance",
+      "ground_truth": 2,
+      "detected": 2,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    },
+    {
+      "id": "div_zero",
+      "title": "Division by zero",
+      "ground_truth": 2,
+      "detected": 2,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    },
+    {
+      "id": "hardcoded_secret",
+      "title": "Hardcoded secret",
+      "ground_truth": 2,
+      "detected": 2,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    },
+    {
+      "id": "login_sqli",
+      "title": "Login with SQL injection",
+      "ground_truth": 1,
+      "detected": 1,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    },
+    {
+      "id": "marks_calculator",
+      "title": "Marks calculator",
+      "ground_truth": 2,
+      "detected": 2,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    },
+    {
+      "id": "mutable_default",
+      "title": "Mutable default argument",
+      "ground_truth": 1,
+      "detected": 1,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    },
+    {
+      "id": "off_by_one",
+      "title": "Off-by-one",
+      "ground_truth": 1,
+      "detected": 1,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    },
+    {
+      "id": "stock_total",
+      "title": "Skipped first row",
+      "ground_truth": 1,
+      "detected": 1,
+      "missed": [],
+      "false_positives": [],
+      "fixed": true
+    }
+  ],
+  "detection_rate": 1.0,
+  "false_positive_count": 0,
+  "false_positive_rate": 0.0,
+  "fix_success_rate": 1.0,
+  "projects_fixed": 8,
+  "project_count": 8,
+  "bug_count": 12,
+  "method": "Each sample is scanned with the AST rules, pylint, pyflakes, bandit and the secret scanner. Gemini is not called, so the numbers do not depend on an API key. A finding matches ground truth when the file, rule and symbol agree. Style notes and low-severity linter messages are shown in the app but are not counted as false-positive bugs. A bug counts as fixed when applying the generated patches makes that sample's oracle pass and its existing tests still pass."
+}
