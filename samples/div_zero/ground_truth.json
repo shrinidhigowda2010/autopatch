@@ -1,0 +1,23 @@
+{
+  "id": "div_zero",
+  "title": "Division by zero",
+  "blurb": "mean([]) crashes, and ratio() crashes when the whole is zero.",
+  "bugs": [
+    {
+      "rule_id": "empty_collection_divisor",
+      "file": "stats.py",
+      "symbol": "mean",
+      "category": "crash",
+      "severity": "high",
+      "title": "Empty input crashes with division by zero"
+    },
+    {
+      "rule_id": "parameter_divisor",
+      "file": "stats.py",
+      "symbol": "ratio",
+      "category": "crash",
+      "severity": "high",
+      "title": "Division by a value that can be zero"
+    }
+  ]
+}

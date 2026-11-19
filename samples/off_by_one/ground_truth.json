@@ -1,0 +1,15 @@
+{
+  "id": "off_by_one",
+  "title": "Off-by-one",
+  "blurb": "The loop reads one past the last reading and crashes.",
+  "bugs": [
+    {
+      "rule_id": "off_by_one_neighbor",
+      "file": "window.py",
+      "symbol": "average_pairs",
+      "category": "crash",
+      "severity": "high",
+      "title": "Loop reads one past the end of the list"
+    }
+  ]
+}

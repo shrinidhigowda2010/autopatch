@@ -1,0 +1,23 @@
+{
+  "id": "hardcoded_secret",
+  "title": "Hardcoded secret",
+  "blurb": "An API key and a database password are written in the source file.",
+  "bugs": [
+    {
+      "rule_id": "hardcoded_secret",
+      "file": "config.py",
+      "symbol": "API_KEY",
+      "category": "security",
+      "severity": "critical",
+      "title": "API key is written directly in the source"
+    },
+    {
+      "rule_id": "hardcoded_secret",
+      "file": "config.py",
+      "symbol": "DB_PASSWORD",
+      "category": "security",
+      "severity": "critical",
+      "title": "Database password is written directly in the source"
+    }
+  ]
+}

@@ -1,0 +1,118 @@
+{
+  "marks_calculator": {
+    "findings": [
+      {
+        "rule_id": "marks_out_of_range",
+        "file": "marks.py",
+        "symbol": "calculate",
+        "root_cause": "calculate() adds every supplied number and never rejects a mark below 0 or above 100, so -5 or 150 still changes the grade.",
+        "student_explanation": "a mark of -5 or 150 is still treated as a real mark."
+      },
+      {
+        "rule_id": "empty_collection_divisor",
+        "file": "marks.py",
+        "symbol": "calculate",
+        "root_cause": "the percentage divides by len(marks). An empty list makes that length zero and the program crashes.",
+        "student_explanation": "calculating with no marks crashes the program."
+      }
+    ]
+  },
+  "bank_balance": {
+    "findings": [
+      {
+        "rule_id": "deposit_non_positive",
+        "file": "bank.py",
+        "symbol": "deposit",
+        "root_cause": "deposit() adds the amount even when it is negative, which removes money.",
+        "student_explanation": "a negative deposit takes money out."
+      },
+      {
+        "rule_id": "withdraw_overdraft",
+        "file": "bank.py",
+        "symbol": "withdraw",
+        "root_cause": "withdraw() subtracts without checking the balance, so the account can go negative.",
+        "student_explanation": "you can take out more money than the account holds."
+      }
+    ]
+  },
+  "login_sqli": {
+    "findings": [
+      {
+        "rule_id": "sql_injection",
+        "file": "auth.py",
+        "symbol": "login",
+        "root_cause": "the username is pasted into the SQL text, so a quote can change the query.",
+        "student_explanation": "a tricky username can log in without the password."
+      }
+    ]
+  },
+  "off_by_one": {
+    "findings": [
+      {
+        "rule_id": "off_by_one_neighbor",
+        "file": "window.py",
+        "symbol": "average_pairs",
+        "root_cause": "the loop uses every index and also reads the next item, which does not exist at the end.",
+        "student_explanation": "the program looks one step past the last number and crashes."
+      }
+    ]
+  },
+  "div_zero": {
+    "findings": [
+      {
+        "rule_id": "empty_collection_divisor",
+        "file": "stats.py",
+        "symbol": "mean",
+        "root_cause": "mean() divides by the length of the list and crashes when the list is empty.",
+        "student_explanation": "the average of no numbers crashes."
+      },
+      {
+        "rule_id": "parameter_divisor",
+        "file": "stats.py",
+        "symbol": "ratio",
+        "root_cause": "ratio() divides by whole and does not stop a caller from passing 0.",
+        "student_explanation": "dividing by zero crashes this function."
+      }
+    ]
+  },
+  "hardcoded_secret": {
+    "findings": [
+      {
+        "rule_id": "hardcoded_secret",
+        "file": "config.py",
+        "symbol": "API_KEY",
+        "root_cause": "the API key is a string in the file, so anyone with the code has the key.",
+        "student_explanation": "the key is written in the file instead of being kept outside it."
+      },
+      {
+        "rule_id": "hardcoded_secret",
+        "file": "config.py",
+        "symbol": "DB_PASSWORD",
+        "root_cause": "the database password is hardcoded next to the API key.",
+        "student_explanation": "the password is sitting in the source."
+      }
+    ]
+  },
+  "mutable_default": {
+    "findings": [
+      {
+        "rule_id": "mutable_default_argument",
+        "file": "cart.py",
+        "symbol": "add_item",
+        "root_cause": "the default list is created once and reused, so a later call sees the earlier item.",
+        "student_explanation": "the basket is shared. The next call still has the previous item."
+      }
+    ]
+  },
+  "stock_total": {
+    "findings": [
+      {
+        "rule_id": "off_by_one_skip_first",
+        "file": "stock.py",
+        "symbol": "total_stock",
+        "root_cause": "the loop starts at 1, so the quantity on the first row is never added. This one is less certain because some loops skip a header on purpose.",
+        "student_explanation": "the first row is left out of the total. A person should confirm that was not deliberate."
+      }
+    ]
+  }
+}

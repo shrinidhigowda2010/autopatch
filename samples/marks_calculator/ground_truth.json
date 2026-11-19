@@ -1,0 +1,23 @@
+{
+  "id": "marks_calculator",
+  "title": "Marks calculator",
+  "blurb": "Accepts negative marks and marks over 100, and crashes when the list is empty.",
+  "bugs": [
+    {
+      "rule_id": "marks_out_of_range",
+      "file": "marks.py",
+      "symbol": "calculate",
+      "category": "input_validation",
+      "severity": "high",
+      "title": "Negative marks and marks over 100 are accepted"
+    },
+    {
+      "rule_id": "empty_collection_divisor",
+      "file": "marks.py",
+      "symbol": "calculate",
+      "category": "crash",
+      "severity": "high",
+      "title": "Empty marks list crashes with division by zero"
+    }
+  ]
+}

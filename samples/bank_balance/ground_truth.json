@@ -1,0 +1,23 @@
+{
+  "id": "bank_balance",
+  "title": "Bank balance",
+  "blurb": "A negative deposit shrinks the balance, and a withdrawal can go below zero.",
+  "bugs": [
+    {
+      "rule_id": "deposit_non_positive",
+      "file": "bank.py",
+      "symbol": "deposit",
+      "category": "logic",
+      "severity": "high",
+      "title": "Deposit accepts zero and negative amounts"
+    },
+    {
+      "rule_id": "withdraw_overdraft",
+      "file": "bank.py",
+      "symbol": "withdraw",
+      "category": "logic",
+      "severity": "critical",
+      "title": "Withdrawal can drive the balance below zero"
+    }
+  ]
+}

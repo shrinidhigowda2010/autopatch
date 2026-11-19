@@ -1,0 +1,15 @@
+{
+  "id": "mutable_default",
+  "title": "Mutable default argument",
+  "blurb": "The default cart is created once and shared by later calls.",
+  "bugs": [
+    {
+      "rule_id": "mutable_default_argument",
+      "file": "cart.py",
+      "symbol": "add_item",
+      "category": "logic",
+      "severity": "high",
+      "title": "Mutable default argument is shared between calls"
+    }
+  ]
+}

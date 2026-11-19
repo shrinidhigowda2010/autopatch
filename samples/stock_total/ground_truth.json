@@ -1,0 +1,15 @@
+{
+  "id": "stock_total",
+  "title": "Skipped first row",
+  "blurb": "The total starts at index 1, so the first row is missing. Confidence is intentionally lower.",
+  "bugs": [
+    {
+      "rule_id": "off_by_one_skip_first",
+      "file": "stock.py",
+      "symbol": "total_stock",
+      "category": "logic",
+      "severity": "medium",
+      "title": "Loop starts at 1 and skips the first item"
+    }
+  ]
+}

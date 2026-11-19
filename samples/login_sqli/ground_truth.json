@@ -1,0 +1,15 @@
+{
+  "id": "login_sqli",
+  "title": "Login with SQL injection",
+  "blurb": "The username and password are pasted into the SQL string.",
+  "bugs": [
+    {
+      "rule_id": "sql_injection",
+      "file": "auth.py",
+      "symbol": "login",
+      "category": "security",
+      "severity": "critical",
+      "title": "Login query is built with string formatting"
+    }
+  ]
+}
