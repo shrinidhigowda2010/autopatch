@@ -23,7 +23,8 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.8-flash"
     gemini_fallback_model: str = "gemini-3.1-flash-lite"
-    gemini_timeout_s: float = 25.0
+    # A full-project scan prompt takes Gemini 20-35 s when it is busy; quick calls pass their own shorter timeout.
+    gemini_timeout_s: float = 45.0
     gemini_retries: int = 2
 
     database_url: str = ""

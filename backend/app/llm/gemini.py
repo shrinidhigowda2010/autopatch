@@ -54,6 +54,7 @@ class GeminiError(RuntimeError):
 # A model that just failed (overloaded, rate limited, timed out) sits out for a while,
 # so every later call doesn't pay for the same slow failure before reaching the fallback.
 COOLDOWN_S = 300.0
+TIMEOUT_COOLDOWN_S = 60.0
 _cooling_until: dict[str, float] = {}
 
 # A rejected key (401/403) will not start working by retrying, so skip Gemini for a while.
@@ -144,7 +145,8 @@ def ask_gemini(
             return _generate(model, prompt, json_output=json_output, attempts=attempts, timeout=timeout)
         except GeminiError as exc:
             log.warning("gemini model %s failed: %s", model, exc)
-            mark_failed(model)
+            # Timeouts are usually a passing spike, so sit out briefly; other failures sit out longer.
+            mark_failed(model, TIMEOUT_COOLDOWN_S if "timed out" in str(exc) else COOLDOWN_S)
             errors.append(str(exc))
     raise GeminiError("; ".join(errors) or "no model answered")
 
@@ -222,6 +224,9 @@ def _generate(
             return payload["candidates"][0]["content"]["parts"][0]["text"]
         except GeminiError:
             raise
+        except httpx.TimeoutException as exc:
+            # A slow model stays slow; retrying would only double the wait before the fallback.
+            raise GeminiError(f"{model} timed out") from exc
         except (httpx.HTTPError, KeyError, IndexError, json.JSONDecodeError) as exc:
             last_error = str(exc)
             time.sleep(0.4 * (attempt + 1))

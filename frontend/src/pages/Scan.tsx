@@ -54,7 +54,7 @@ export default function Scan() {
           </p>
         </div>
         <button onClick={() => void run()} disabled={busy} className="btn-primary disabled:opacity-60">
-          {busy ? "Scanning… about 20 seconds" : scan ? "Scan again" : "Run scan"}
+          {busy ? "Scanning… up to a minute" : scan ? "Scan again" : "Run scan"}
         </button>
       </div>
       {error && <p className="mt-4 text-bug">{error}</p>}
