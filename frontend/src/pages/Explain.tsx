@@ -27,7 +27,7 @@ export default function Explain() {
       <h1 className="text-3xl font-semibold">Explain</h1>
       <p className="mt-2 text-mist">
         Each note says what input triggers the bug and why the code does the wrong thing.
-        {prefs.studentMode ? " Student mode is on, so the shorter explanation is showing." : " Turn on student mode for a shorter version."}
+        {prefs.studentMode ? " Simple explanations are on, so you're seeing the shorter version." : " Want it simpler? Turn on Simple explanations at the top, or switch to ಕನ್ನಡ / हिन्दी."}
       </p>
       {error && <p className="mt-4 text-bug">{error}</p>}
       <div className="mt-6 space-y-3">

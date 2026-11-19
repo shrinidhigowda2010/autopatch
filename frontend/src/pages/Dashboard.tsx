@@ -38,8 +38,8 @@ export default function Dashboard() {
     <div className="mx-auto max-w-5xl">
       <h1 className="text-3xl font-semibold">Dashboard</h1>
       <p className="mt-2 text-mist">
-        {data.scan ? "Showing the latest scan for this project." : "Scan the project to fill this page."}{" "}
-        Findings under 80% confidence are marked for a person to check.
+        {data.scan ? "Showing the latest scan for this project." : "Scan the project and this page fills in."}{" "}
+        Anything FixPilot is less than 80% sure about is marked for you to double-check.
       </p>
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <Stat label="Findings" value={data.counts.findings} />

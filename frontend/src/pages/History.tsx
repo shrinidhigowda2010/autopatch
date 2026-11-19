@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { EmptyState, ListSkeleton } from "../components/Skeleton";
+import { eventLabel, friendlyTime } from "../lib/format";
 
 interface HistoryPayload {
   events: { kind: string; message: string; at: string; bug_id: string | null }[];
@@ -19,11 +20,11 @@ export default function History() {
   return (
     <div className="mx-auto max-w-3xl">
       <h1 className="text-3xl font-semibold">History</h1>
-      <p className="mt-2 text-mist">Scans, bugs, patches, test runs and accept or reject decisions are stored for this project.</p>
+      <p className="mt-2 text-mist">Everything that happened to this project, from upload to the last test run. Download it as a report anytime.</p>
       <div className="mt-4 flex flex-wrap gap-2 text-sm">
-        <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/json`}>Export JSON</a>
-        <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/pdf`}>Export PDF</a>
-        <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/zip`}>Export fixed zip</a>
+        <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/json`}>Download JSON</a>
+        <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/pdf`}>Download PDF report</a>
+        <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/zip`}>Download fixed code (.zip)</a>
       </div>
       {error && <p className="mt-4 text-bug">{error}</p>}
       {!data && !error && (
@@ -37,9 +38,9 @@ export default function History() {
         </div>
       )}
       <ol className="mt-6 space-y-3">
-        {(data?.events || []).map((event) => (
-          <li key={event.at + event.message} className="rounded-lg border border-line bg-panel px-3 py-2">
-            <p className="font-mono text-xs text-mist">{event.at} · {event.kind}</p>
+        {(data?.events || []).map((event, index) => (
+          <li key={`${event.at}-${index}`} className="rounded-lg border border-line bg-panel px-3 py-2">
+            <p className="font-mono text-xs text-mist">{friendlyTime(event.at)} · {eventLabel(event.kind)}</p>
             <p className="mt-1 text-sm">{event.message}</p>
           </li>
         ))}

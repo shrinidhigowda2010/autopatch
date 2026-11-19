@@ -40,10 +40,10 @@ export default function TestPage() {
       source.onerror = () => {
         if (finished) return;
         source.close();
-        setError("The live test stream closed early. Open History if the tests are still going.");
+        setError("Lost the live updates, but the tests may still be running. Check History in a moment.");
       };
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not start tests.");
+      setError(err instanceof Error ? err.message : "The tests didn't start. Try again in a moment.");
       setStatus("idle");
     }
   }
@@ -58,13 +58,17 @@ export default function TestPage() {
     <div className="mx-auto max-w-3xl">
       <h1 className="text-3xl font-semibold">Test</h1>
       <p className="mt-2 text-mist">
-        Existing tests run first. Then FixPilot writes edge-case tests — a normal value, a minimum, a maximum, and an invalid value —
-        and runs them before and after the patch. The full suite runs again as a regression check. The program runs in a temp folder with time and memory limits.
+        This is where a fix earns its place. FixPilot runs your own tests, then writes new ones for each bug (a normal value, the
+        smallest, the largest and a bad one) and runs them on the old code and the fixed code. A fix counts only when those tests
+        fail before and pass after. Everything runs in a locked-down sandbox with time and memory limits.
       </p>
       <button onClick={() => void start()} className="mt-5 btn-primary">
-        {status === "queued" || status === "running" ? "Running…" : "Run before and after"}
+        {status === "queued" || status === "running" ? "Running…" : "Run the tests"}
       </button>
       {error && <p className="mt-4 text-bug">{error}</p>}
+      {events.length === 0 && !error && status !== "queued" && status !== "running" && (
+        <p className="mt-4 text-sm text-mist">Tip: approve a fix or two on the Fix step first, then run the tests to see before and after.</p>
+      )}
       <ol className="mt-6 space-y-2">
         {events.map((event, index) => (
           <li key={event.id ?? index} className={tone[event.status] || "text-paper"}>

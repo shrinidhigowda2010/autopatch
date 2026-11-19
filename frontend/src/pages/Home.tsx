@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { api } from "../api";
 import BugFixTyping from "../components/BugFixTyping";
@@ -30,20 +30,21 @@ const TECH = ["Python", "FastAPI", "React", "Gemini", "SQLAlchemy", "Docker"];
 const HOW = [
   {
     title: "Detect",
-    copy: "Static analysis plus an AI layer merges findings into clear bug reports.",
+    copy: "Static analysis tools and Gemini read your code together, then merge what they find into one clear bug list.",
   },
   {
     title: "Repair",
-    copy: "Minimal patches with side-by-side diffs. You approve, edit, or reject each change.",
+    copy: "FixPilot writes the smallest change that fixes each bug and shows you a before/after. You approve, edit or reject it.",
   },
   {
     title: "Verify",
-    copy: "Sandbox tests before and after every fix, with auto-rollback if something breaks.",
+    copy: "Tests run on the old code and the new code. If a fix breaks anything, it is undone on its own.",
   },
 ] as const;
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [samples, setSamples] = useState<SampleInfo[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -79,6 +80,12 @@ export default function Home() {
       .catch(() => undefined);
   }, []);
 
+  // Links like "/#examples" from other pages land on the sample cards.
+  useEffect(() => {
+    if (location.hash !== "#examples" || samples.length === 0) return;
+    document.getElementById("examples")?.scrollIntoView({ behavior: "smooth" });
+  }, [location.hash, samples.length]);
+
   async function openSample(sample: SampleInfo) {
     setBusy(sample.id);
     setError("");
@@ -89,7 +96,7 @@ export default function Home() {
       });
       navigate(`/p/${project.id}/scan?auto=1`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not load the project.");
+      setError(err instanceof Error ? err.message : "That sample didn't open. Give it a second and try again.");
       setBusy("");
     }
   }
@@ -101,18 +108,18 @@ export default function Home() {
           <Logo className="h-12 w-auto" />
           <p className="mt-6 font-mono text-xs uppercase tracking-[0.22em] text-ink">Find it. Fix it. Prove it.</p>
           <h1 className="mt-3 max-w-xl text-4xl font-semibold leading-tight tracking-tight text-ink md:text-5xl">
-            Autonomous repair with human approval at every step.
+            Find the bug. Fix it. Prove the fix works.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-ink/80">
-            FixPilot finds real bugs, explains the root cause, proposes a minimal patch, and proves it with tests —
-            nothing is written until you approve.
+            Drop in your code and FixPilot finds what's broken, tells you why in plain words, writes the smallest fix, and
+            runs tests to prove it. Nothing changes until you say yes.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link to="/upload" className="btn-primary">
-              Get started
+              Upload your code
             </Link>
             <a href="#examples" className="btn-secondary">
-              Explore example projects
+              Try a sample in one click
             </a>
           </div>
           <div className="mt-8 max-w-md">
@@ -145,7 +152,7 @@ export default function Home() {
 
       <section className="mt-16">
         <h2 className="text-3xl font-semibold text-ink">How it works</h2>
-        <p className="mt-2 max-w-2xl text-ink/80">Three steps from buggy code to a verified fix.</p>
+        <p className="mt-2 max-w-2xl text-ink/80">Three steps from broken code to a fix you can trust.</p>
         <div className="mt-8 grid gap-5 md:grid-cols-3" style={{ perspective: "1200px" }}>
           {HOW.map((item, index) => (
             <motion.div
@@ -173,10 +180,10 @@ export default function Home() {
         <h2 className="text-3xl font-semibold text-ink">Why FixPilot</h2>
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           {[
-            ["Test-proven fixes", "Every approved change is checked in a sandbox before and after it lands."],
-            ["Human approval on every change", "Ask-every-fix mode keeps you in control; risky edits never auto-apply."],
-            ["Explainable root cause", "Plain-language triggers and student-friendly explanations for each finding."],
-            ["Full audit trail", "Coder ID, decisions, and version timeline ship with your PDF and JSON reports."],
+            ["Test-proven fixes", "A fix only counts when the tests that failed before pass after."],
+            ["Human approval on every change", "FixPilot asks before every change. Risky edits never go in on their own."],
+            ["Explainable root cause", "Every bug comes with the input that triggers it, in plain words, and in Kannada or Hindi if you prefer."],
+            ["Full audit trail", "Every decision is logged with your Coder ID and time, and you can download it all as a PDF."],
           ].map(([title, copy]) => (
             <div key={title} className="card-3d p-5">
               <h3 className="text-lg font-semibold text-ink">{title}</h3>
@@ -189,7 +196,8 @@ export default function Home() {
       <section id="examples" className="mt-16 scroll-mt-8">
         <h2 className="text-3xl font-semibold text-ink">Explore example projects</h2>
         <p className="mt-2 max-w-2xl text-ink/80">
-          Each card loads a small buggy program and starts a scan so you can walk the full Detect → Repair → Verify loop.
+          New here? Pick one. Each card opens a small program with real bugs and scans it right away, so you can see the
+          whole find, fix and prove loop in about a minute.
         </p>
         {error && <p className="mt-4 text-bug">{error}</p>}
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -204,7 +212,7 @@ export default function Home() {
               <p className="text-lg font-semibold">{sample.title}</p>
               <p className="mt-2 text-ink/80">{sample.blurb}</p>
               <p className="mt-4 font-mono text-xs text-mist">
-                {busy === sample.id ? "Loading…" : `${sample.bugs} known bugs`}
+                {busy === sample.id ? "Loading…" : `${sample.bugs} bugs hiding · tap to scan`}
               </p>
             </button>
           ))}

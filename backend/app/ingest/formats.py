@@ -332,11 +332,11 @@ def _from_image(name: str, data: bytes, kind: str) -> Extraction:
         result = _ocr(payload)
         if result is None:
             raise IngestError(
-                "Reading code from images needs the AI engine, which is offline right now. "
+                "Reading code from images needs Gemini, which isn't reachable right now. "
                 "Paste the code as text instead.",
                 503,
             ) from exc
-        engine_note = "Code read with OCR (the AI engine is offline). Check spacing before scanning."
+        engine_note = "Code read with OCR because Gemini isn't reachable. Check the spacing before scanning."
 
     code = (result.get("code") or "").replace("\r\n", "\n")
     if not code.strip():

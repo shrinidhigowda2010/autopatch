@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
+import { friendlyTime } from "../lib/format";
 import { useAuth } from "../auth";
 
 interface HistoryRow {
@@ -48,7 +49,7 @@ export default function MyHistory() {
               <div>
                 <p className="font-medium">{row.name}</p>
                 <p className="font-mono text-xs text-mist">
-                  {row.id} · {row.source_type} · {new Date(row.created_at).toLocaleString()}
+                  {row.id} · {row.source_type} · {friendlyTime(row.created_at)}
                 </p>
               </div>
               <Link to={`/p/${row.id}/dashboard`} className="rounded-lg border border-line px-3 py-1.5 text-sm hover:border-lime/50">

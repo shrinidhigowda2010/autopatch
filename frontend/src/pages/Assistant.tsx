@@ -217,7 +217,7 @@ export default function Assistant() {
         const detail = await response.json().catch(() => null);
         throw new Error(
           (detail && typeof detail.detail === "string" && detail.detail) ||
-            (response.status === 429 ? "You're sending messages quickly. Wait a moment and try again." : "Could not reach the assistant."),
+            (response.status === 429 ? "You're sending messages quickly. Wait a moment and try again." : "Can't reach FixPilot right now. Check your connection and try again."),
         );
       }
 
@@ -254,13 +254,13 @@ export default function Assistant() {
             updateReply(replyId, () => ({ ...(data.message as ChatMsg), role: "assistant", streaming: false }));
             void loadConversations();
           } else if (data.type === "error") {
-            throw new Error(String(data.detail || "The assistant hit a problem."));
+            throw new Error(String(data.detail || "Something went wrong on my side. Try asking again."));
           }
         }
       }
       if (!saved) throw new Error("The connection closed before the reply finished. Please try again.");
     } catch (err) {
-      showProblem(err instanceof Error ? err.message : "The assistant hit a problem.");
+      showProblem(err instanceof Error ? err.message : "Something went wrong on my side. Try asking again.");
       if (!gotText) setMessages((prev) => prev.filter((msg) => msg.id !== replyId));
     } finally {
       setBusy(false);
@@ -280,7 +280,7 @@ export default function Assistant() {
       await api(`/api/assistant/messages/${messageId}/feedback`, { method: "POST", body: JSON.stringify({ value }) });
     } catch {
       updateReply(messageId, (msg) => ({ ...msg, feedback: before }));
-      showProblem("Could not save your feedback.");
+      showProblem("Couldn't save that. Try again.");
     }
   }
 
@@ -297,13 +297,13 @@ export default function Assistant() {
         const response = await fetch("/api/projects/extract", { method: "POST", headers: authHeader(), body: form });
         if (!response.ok) {
           const detail = await response.json().catch(() => null);
-          throw new Error((detail && typeof detail.detail === "string" && detail.detail) || "Could not read that file.");
+          throw new Error((detail && typeof detail.detail === "string" && detail.detail) || "I couldn't read that file. Try pasting the code instead.");
         }
         const body = (await response.json()) as { files: typeof snippets };
         snippets = body.files;
       }
       if (!snippets.length || !snippets.some((item) => item.content.trim())) {
-        throw new Error("No code found in that file.");
+        throw new Error("I didn't find any code in that file.");
       }
       setInput((prev) => {
         const intro = prev.trim() || "Please check this code for bugs:";
@@ -316,7 +316,7 @@ export default function Assistant() {
         return `${intro}\n\n${blocks.join("\n\n")}`.slice(0, MAX_MESSAGE_CHARS);
       });
     } catch (err) {
-      showProblem(err instanceof Error ? err.message : "Could not attach that file.");
+      showProblem(err instanceof Error ? err.message : "Couldn't attach that file. Try pasting the code instead.");
     } finally {
       setAttaching(false);
     }
@@ -358,7 +358,7 @@ export default function Assistant() {
         })),
       );
     } catch (err) {
-      showProblem(err instanceof Error ? err.message : "Could not update the patch.");
+      showProblem(err instanceof Error ? err.message : "Couldn't update that fix. Try again.");
     }
   }
 
@@ -454,7 +454,7 @@ export default function Assistant() {
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{standalone ? "General chat" : project?.name || "Your project"}</p>
             <p className="truncate text-xs text-mist">
-              {standalone ? "Paste code or attach a file and I'll check it" : "FixPilot Assistant · nothing changes until you approve"}
+              {standalone ? "Paste code or attach a file and I'll check it" : "Ask about this project. Nothing changes until you approve."}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">

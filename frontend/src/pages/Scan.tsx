@@ -26,7 +26,7 @@ export default function Scan() {
       const result = await api<Scan>(`/api/projects/${projectId}/scans`, { method: "POST" });
       setScan(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Scan failed.");
+      setError(err instanceof Error ? err.message : "The scan didn't finish. Try again in a moment.");
     } finally {
       setBusy(false);
     }
@@ -48,10 +48,13 @@ export default function Scan() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold">Scan</h1>
-          <p className="mt-1 text-mist">Layer 1 is pylint, pyflakes, bandit and a secret scan. Layer 2 is Gemini, with a fallback model.</p>
+          <p className="mt-1 max-w-2xl text-mist">
+            FixPilot runs trusted checkers (pylint, pyflakes, bandit and a secret scan) and asks Gemini to look for logic
+            bugs. Then it merges both into one list. Click any bug to see why it happens.
+          </p>
         </div>
         <button onClick={() => void run()} disabled={busy} className="btn-primary disabled:opacity-60">
-          {busy ? "Scanning…" : "Run scan"}
+          {busy ? "Scanning… about 20 seconds" : scan ? "Scan again" : "Run scan"}
         </button>
       </div>
       {error && <p className="mt-4 text-bug">{error}</p>}
@@ -75,7 +78,7 @@ export default function Scan() {
             <div className="rounded-xl border border-line bg-panel p-4">
               <h2 className="font-medium">Dependencies</h2>
               {project.dependencies.length === 0 ? (
-                <p className="mt-2 text-sm text-mist">No third-party packages declared.</p>
+                <p className="mt-2 text-sm text-mist">No third-party packages.</p>
               ) : (
                 <ul className="mt-2 font-mono text-sm">
                   {project.dependencies.map((dep) => (
@@ -99,7 +102,7 @@ export default function Scan() {
         <section className="mt-4 rounded-xl border border-line bg-panel p-4">
           <h2 className="font-medium">Import graph</h2>
           <ul className="mt-2 space-y-1 font-mono text-xs text-mist">
-            {project.graph.edges.length === 0 && <li>No imports between files. External modules, if any, are listed as nodes.</li>}
+            {project.graph.edges.length === 0 && <li>These files don't import each other.</li>}
             {project.graph.edges.map((edge) => (
               <li key={`${edge.from}-${edge.to}`}>{edge.from} → {edge.to} <span className="text-paper">({edge.kind})</span></li>
             ))}
@@ -114,7 +117,7 @@ export default function Scan() {
               <Link key={bug.id} to={`/p/${projectId}/explain/${bug.id}`} className="block rounded-xl border border-line bg-panel p-4 hover:border-lime/50">
                 <div className="flex flex-wrap items-center gap-2">
                   <SeverityBadge severity={bug.severity_and_confidence.severity} />
-                  {bug.severity_and_confidence.needs_human_review && <span className="text-xs text-amber">needs human review</span>}
+                  {bug.severity_and_confidence.needs_human_review && <span className="text-xs text-amber">worth a second look</span>}
                 </div>
                 <p className="mt-2 font-medium">{bug.bug_details.title}</p>
                 <p className="font-mono text-xs text-mist">{bug.bug_details.file}:{bug.bug_details.line} · {sourceLabel(bug.bug_details.source)}</p>
@@ -123,7 +126,7 @@ export default function Scan() {
           </div>
           {notes.length > 0 && (
             <details className="mt-4 text-sm text-mist">
-              <summary>{notes.length} style notes from the linters</summary>
+              <summary>{notes.length} small style notes (not bugs)</summary>
               <ul className="mt-2 space-y-1">
                 {notes.map((bug) => (
                   <li key={bug.id}>{bug.bug_details.file}:{bug.bug_details.line} — {bug.bug_details.title}</li>

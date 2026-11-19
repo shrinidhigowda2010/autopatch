@@ -32,7 +32,7 @@ export default function Register() {
       setSession(body.access_token, body.user);
       setWelcome({ coderId: body.coder_id });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not register.");
+      setError(err instanceof Error ? err.message : "Couldn't create your account. Try again.");
     } finally {
       setBusy(false);
     }
@@ -56,7 +56,7 @@ export default function Register() {
           <Logo className="h-10 w-auto" />
           <h1 className="mt-6 text-3xl font-semibold">Welcome to FixPilot</h1>
           <p className="mt-2 text-mist">
-            Save your Coder ID — you can sign in with it or your email. Scans and patch decisions stay linked to it.
+            This is your Coder ID. Save it: you can sign in with it or your email, and every scan and decision you make is linked to it.
           </p>
           <div className="mt-6 rounded-2xl border border-line bg-cream px-4 py-5 text-center shadow-emboss">
             <p className="font-mono text-xs uppercase tracking-[0.2em] text-mist">Coder ID</p>

@@ -23,7 +23,15 @@ from sqlalchemy.orm import Session
 
 from app.agent.tools import TOOL_DECLARATIONS, execute_tool, project_context, tool_label
 from app.config import settings
-from app.llm.gemini import COOLDOWN_S, GeminiError, chat_models, gemini_usable, mark_failed, mark_key_rejected
+from app.llm.gemini import (
+    COOLDOWN_S,
+    GeminiError,
+    chat_models,
+    gemini_usable,
+    google_error_text,
+    mark_failed,
+    mark_key_rejected,
+)
 from app.models import Bug, Patch, Project
 from app.services import latest_scan, run_scan
 
@@ -244,7 +252,8 @@ def _gemini_stream(
             with httpx.Client(timeout=httpx.Timeout(CHAT_TIMEOUT_S, connect=5.0)) as client:
                 with client.stream("POST", url, params={"key": settings.gemini_api_key, "alt": "sse"}, json=body) as resp:
                     if resp.status_code in {401, 403}:
-                        mark_key_rejected()
+                        resp.read()
+                        mark_key_rejected(google_error_text(resp))
                         raise GeminiError(f"{model} refused the API key ({resp.status_code})")
                     if resp.status_code >= 400:
                         mark_failed(model)

@@ -61,14 +61,45 @@ KEY_REJECTED_S = 600.0
 _key_rejected_until = 0.0
 
 
-def mark_key_rejected() -> None:
-    global _key_rejected_until
+_last_key_error = ""
+
+
+def mark_key_rejected(detail: str = "") -> None:
+    global _key_rejected_until, _last_key_error
     _key_rejected_until = time.monotonic() + KEY_REJECTED_S
+    if detail:
+        # Google's own reason (e.g. "API key not valid"), never the key itself.
+        _last_key_error = detail.replace(settings.gemini_api_key, "***")[:200] if settings.gemini_api_key else detail[:200]
+
+
+def last_key_error() -> str:
+    return _last_key_error
+
+
+def google_error_text(response: httpx.Response) -> str:
+    try:
+        error = response.json().get("error", {})
+        return f"{response.status_code} {error.get('status', '')}: {error.get('message', '')}".strip()
+    except (ValueError, AttributeError):
+        return f"{response.status_code}"
 
 
 def gemini_usable() -> bool:
     """A key is set and Google has not recently refused it."""
     return settings.gemini_configured and time.monotonic() >= _key_rejected_until
+
+
+def engine_status() -> str:
+    """What the AI layer can do right now: online, busy, key_rejected or off."""
+    if not settings.gemini_configured:
+        return "off"
+    now = time.monotonic()
+    if now < _key_rejected_until:
+        return "key_rejected"
+    models = {settings.gemini_model, settings.gemini_fallback_model}
+    if all(now < _cooling_until.get(model, 0.0) for model in models):
+        return "busy"
+    return "online"
 
 
 def chat_models() -> list[str]:
@@ -184,7 +215,7 @@ def _generate(
                 time.sleep(0.6 * (attempt + 1))
                 continue
             if response.status_code in {401, 403}:
-                mark_key_rejected()
+                mark_key_rejected(google_error_text(response))
             if response.status_code >= 400:
                 raise GeminiError(f"{model} returned {response.status_code}")
             payload = response.json()

@@ -117,8 +117,8 @@ export default function Fix() {
         );
         setMessage(
           result.rolled_back
-            ? result.message || "Auto-rolled back because tests failed."
-            : "Approved and applied. Tests re-checked.",
+            ? result.message || "The tests failed after this fix, so FixPilot undid it for you."
+            : "Fix applied, and the tests were run again to check it.",
         );
       } else if (kind === "reject") {
         const result = await api<{
@@ -128,7 +128,7 @@ export default function Fix() {
           method: "POST",
           body: JSON.stringify({ note: rejectNote, try_another: Boolean(rejectNote.trim()) }),
         });
-        setMessage("Rejected. The workspace was left alone.");
+        setMessage("Rejected. Your code stays as it was.");
         const alt = result.alternative?.alternative;
         if (alt) setAlternative(alt);
       } else if (kind === "skip") {
@@ -139,7 +139,7 @@ export default function Fix() {
           method: "POST",
           body: JSON.stringify({ edited_code: editCode, note: "Edited before applying", verify_tests: true }),
         });
-        setMessage("Edited fix applied.");
+        setMessage("Your edited fix is in.");
         setEditing(false);
       }
       await load();
@@ -154,7 +154,7 @@ export default function Fix() {
     setError("");
     try {
       await api(`/api/patches/${patchId}/decision`, { method: "POST", body: JSON.stringify({ action }) });
-      setMessage(action === "accept" ? "Patch applied to the workspace." : "Patch rejected. The file was left alone.");
+      setMessage(action === "accept" ? "Fix applied." : "Rejected. The file stays as it was.");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not record the decision.");
@@ -234,7 +234,7 @@ export default function Fix() {
       });
       setAskAnswer(result.answer);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ask AI failed.");
+      setError(err instanceof Error ? err.message : "Couldn't get an answer just now. Try again in a moment.");
     } finally {
       setBusy(false);
     }
@@ -244,7 +244,7 @@ export default function Fix() {
     if (!alternative?.after_code || !currentPatch) return;
     setEditCode(alternative.after_code);
     setEditing(true);
-    setMessage("Loaded alternative into the editor. Review, then apply.");
+    setMessage("The other fix is in the editor. Have a look, then apply it.");
   }
 
   const pct = progress && progress.total ? Math.round(((progress.approved + progress.rejected + progress.skipped) / progress.total) * 100) : 0;
@@ -255,8 +255,8 @@ export default function Fix() {
         <div>
           <h1 className="text-3xl font-semibold">Fix</h1>
           <p className="mt-2 max-w-2xl text-mist">
-            Auto-Correct Mode walks through each fix and asks before changing anything. The original upload stays
-            untouched — only the working copy is patched.
+            FixPilot shows you one fix at a time and waits for your yes. Your original upload is never touched; fixes go
+            into a working copy you can roll back anytime.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -277,9 +277,9 @@ export default function Fix() {
       <div className="mt-5 flex flex-wrap gap-2">
         {(
           [
-            ["manual", "Manual"],
-            ["ask", "Ask Every Fix"],
-            ["auto_safe", "Auto for Safe Fixes"],
+            ["manual", "Show all as a list"],
+            ["ask", "Ask me each time"],
+            ["auto_safe", "Auto-apply safe ones"],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -293,9 +293,9 @@ export default function Fix() {
         ))}
       </div>
       <p className="mt-2 text-sm text-mist">
-        {mode === "ask" && "Default: one permission card at a time. Shortcuts: A approve · R reject · S skip · E edit."}
-        {mode === "auto_safe" && "Low-risk fixes with confidence ≥ 90% and passing tests can auto-apply; everything else still asks."}
-        {mode === "manual" && "Classic list of Accept / Reject for every proposed patch."}
+        {mode === "ask" && "One fix at a time, and nothing changes until you approve. Keyboard: A approve · R reject · S skip · E edit."}
+        {mode === "auto_safe" && "Small, low-risk fixes that FixPilot is at least 90% sure about and that pass their tests go in by themselves. Everything else still asks you."}
+        {mode === "manual" && "Every proposed fix in one list, with Accept and Reject on each."}
       </p>
 
       {progress && progress.total > 0 && (
@@ -322,7 +322,7 @@ export default function Fix() {
           Undo last fix
         </button>
         <button type="button" onClick={() => void rollbackEverything()} disabled={busy} className="rounded-lg border border-line px-3 py-1.5">
-          Rollback all
+          Undo all fixes
         </button>
       </div>
 
@@ -346,7 +346,7 @@ export default function Fix() {
       {summary && (
         <section className="mt-6 rounded-xl border border-fixed/30 bg-panel p-5">
           <h2 className="text-xl font-semibold">Repair summary</h2>
-          <p className="mt-2 text-mist">Walkthrough complete for this scan.</p>
+          <p className="mt-2 text-mist">You went through every fix from this scan. Here is how it ended.</p>
           <ul className="mt-3 space-y-1 text-sm">
             <li>Bugs fixed: {(summary.progress as Progress)?.approved ?? 0}</li>
             <li>
@@ -391,12 +391,12 @@ export default function Fix() {
       )}
 
       {mode !== "manual" && !current && !summary && (
-        <p className="mt-6 text-mist">No proposed patches left. Run a scan, or switch to Manual to review history.</p>
+        <p className="mt-6 text-mist">All caught up, no fixes are waiting. Run the tests to prove the result, or pick "Show all as a list" to look back.</p>
       )}
 
       {mode === "manual" && (
         <div className="mt-6 space-y-6">
-          {queue.length === 0 && <p className="text-mist">No patches yet. Run a scan first.</p>}
+          {queue.length === 0 && <p className="text-mist">No fixes yet. Run a scan first and FixPilot will suggest them here.</p>}
           {queue.map((bug: Bug) => {
             const patch = bug.suggested_patch[0];
             return (
@@ -574,16 +574,16 @@ function PermissionCard({
 
       <div className="mt-4 rounded-lg border border-line px-3 py-2 text-sm">
         <span className="text-mist">Test proof: </span>
-        <span className={beforeFail ? "text-bug" : "text-mist"}>before {beforeFail ? "failing" : "unknown"}</span>
+        <span className={beforeFail ? "text-bug" : "text-mist"}>before {beforeFail ? "failing" : "not run yet"}</span>
         <span className="text-mist"> → </span>
-        <span className={afterPass ? "text-fixed" : "text-mist"}>after {afterPass ? "passing" : "run tests to prove"}</span>
+        <span className={afterPass ? "text-fixed" : "text-mist"}>after {afterPass ? "passing" : "run the tests to prove it"}</span>
       </div>
 
       <ProofArena key={patch.id} patchId={patch.id} />
 
       {editing && (
         <div className="mt-4">
-          <p className="mb-2 text-sm text-mist">Edit the after-code, then apply.</p>
+          <p className="mb-2 text-sm text-mist">Change the fixed code however you like, then apply it.</p>
           <textarea
             value={editCode}
             onChange={(e) => setEditCode(e.target.value)}
@@ -595,7 +595,7 @@ function PermissionCard({
 
       <div className="mt-4">
         <label className="block text-sm text-mist">
-          Reject reason (optional — helps regenerate an alternative)
+          Why are you rejecting it? (optional, helps FixPilot suggest a better fix)
           <input
             value={rejectNote}
             onChange={(e) => setRejectNote(e.target.value)}
@@ -607,7 +607,7 @@ function PermissionCard({
 
       {alternative && (
         <div className="mt-4 rounded-lg border border-line bg-panel p-3 text-sm">
-          <p className="font-medium">Alternative from AI</p>
+          <p className="font-medium">Another way to fix it</p>
           <p className="mt-1 text-mist">{alternative.explanation}</p>
           <button type="button" onClick={onTryAlternative} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-mist">
             Try another fix
@@ -620,7 +620,7 @@ function PermissionCard({
           <input
             value={askQuestion}
             onChange={(e) => setAskQuestion(e.target.value)}
-            placeholder="Ask why this fix is safe…"
+            placeholder="e.g. Why is this fix safe? What if the list is empty?"
             className="w-full rounded-lg border border-line bg-cream px-3 py-2 text-sm"
           />
           <button type="button" onClick={onAsk} disabled={busy} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-sm">
@@ -650,7 +650,7 @@ function PermissionCard({
           ⏭️ Skip for now
         </button>
         <button type="button" disabled={busy} onClick={() => setAskOpen(!askOpen)} className="rounded-lg border border-line px-3 py-1.5 text-sm">
-          💬 Ask AI why
+          💬 Ask why
         </button>
         <Link
           to={`/p/${projectId}/assistant?bug=${bug.id}`}

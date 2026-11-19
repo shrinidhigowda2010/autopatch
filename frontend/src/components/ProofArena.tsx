@@ -106,7 +106,7 @@ function AttackPanel({
     try {
       onResult(await api<AttackResult>(`/api/patches/${patchId}/attack`, { method: "POST" }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "The attack could not run.");
+      setError(err instanceof Error ? err.message : "Break-It couldn't run on this fix. Try again in a moment.");
     } finally {
       setBusy(false);
     }
@@ -115,8 +115,8 @@ function AttackPanel({
   return (
     <div className="mt-3">
       <p className="text-sm text-mist">
-        FixPilot throws 10–15 hostile inputs at the function (empty, None, negative, huge, unicode, wrong types) and
-        runs the old and new code side by side in the sandbox.
+        Try to break the fix. FixPilot throws 10 to 15 nasty inputs at the function (empty, None, negative, huge, unicode,
+        wrong types) and runs the old and new code side by side, so you can see what each one survives.
       </p>
       <button type="button" onClick={() => void launch()} disabled={busy} className="btn-primary mt-3 px-4 py-2 text-sm">
         {busy ? "Attacking…" : result ? "Attack again" : "Launch attack"}
@@ -261,12 +261,12 @@ function DebatePanel({ patchId, attack }: { patchId: string; attack: AttackResul
           if (event.type === "turn") setTurns((prev) => [...prev, event as unknown as Turn]);
           else if (event.type === "verdict") setVerdict(event as unknown as Verdict);
           else if (event.type === "notice") setNotice(String(event.text || ""));
-          else if (event.type === "error") setError(String(event.detail || "The debate stopped."));
+          else if (event.type === "error") setError(String(event.detail || "The debate stopped early. Run it again."));
         },
         controller.signal,
       );
     } catch (err) {
-      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "The debate stopped.");
+      if (!controller.signal.aborted) setError(err instanceof Error ? err.message : "The debate stopped early. Run it again.");
     } finally {
       setRunning(false);
     }
@@ -277,14 +277,14 @@ function DebatePanel({ patchId, attack }: { patchId: string; attack: AttackResul
   return (
     <div className="mt-3">
       <p className="text-sm text-mist">
-        Breaker attacks the fix with edge cases, Fixer defends it, three rounds, then the Judge rules.
+        Two AI reviewers argue about this fix: Breaker hunts for inputs that still break it, Fixer defends it. After three rounds, the Judge decides using the test results.
         {attack ? " The Break-It scoreboard is shared as evidence." : ""}
       </p>
       <button type="button" onClick={() => void start()} disabled={running} className="btn-primary mt-3 px-4 py-2 text-sm">
         {running ? "Debating…" : turns.length ? "Run the debate again" : "Start the debate"}
       </button>
       {error && <p className="mt-3 text-sm text-bug">{error}</p>}
-      {notice && <p className="mt-3 text-sm text-review">{notice}</p>}
+      {notice && <p className="mt-3 rounded-xl border border-line bg-cream px-3 py-2 text-sm text-mist">{notice}</p>}
       <div className="mt-4 space-y-3">
         {turns.map((turn, index) => (
           <DebateBubble key={index} turn={turn} />

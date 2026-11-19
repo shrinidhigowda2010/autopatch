@@ -183,6 +183,12 @@ export default function Race() {
               </motion.p>
             )}
           </AnimatePresence>
+          {!running && !done && (
+            <p className="mx-auto mt-6 max-w-2xl text-mist">
+              Pick an example or paste your own code, then press Start. FixPilot scans it, writes a fix and runs tests on the old
+              and new code while the clock runs. Every second is real work, not an animation.
+            </p>
+          )}
           {error && <p className="mt-6 text-bug">{error}</p>}
         </section>
 
@@ -232,7 +238,7 @@ export default function Race() {
                   </p>
                 </>
               ) : (
-                <p className="mt-1 text-mist">{running ? "Scanning with static tools and Gemini…" : "Waiting for code."}</p>
+                <p className="mt-1 text-mist">{running ? "Reading your code and looking for bugs…" : "Paste code or pick an example to start."}</p>
               )}
             </div>
             <div className="card-3d p-4">
@@ -255,7 +261,7 @@ export default function Race() {
                   ))}
                 </pre>
               ) : (
-                <p className="mt-1 text-mist">{bug && running ? "Writing the patch…" : "—"}</p>
+                <p className="mt-1 text-mist">{bug && running ? "Writing the fix…" : "—"}</p>
               )}
             </div>
             {projectId && done && (

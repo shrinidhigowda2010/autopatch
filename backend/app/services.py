@@ -379,7 +379,8 @@ def run_scan(session: Session, project: Project, user: User | None = None, use_g
         session,
         project.id,
         "scan_finished",
-        f"Scan finished in {report.mode} mode with {len(report.findings)} finding(s).",
+        f"Scan finished: {len(report.findings)} finding{'' if len(report.findings) == 1 else 's'}"
+        f" ({'static analysis + Gemini' if report.mode == 'live' and not report.gemini_error else 'static analysis'}).",
     )
     session.commit()
     return scan

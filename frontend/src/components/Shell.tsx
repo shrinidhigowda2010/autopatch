@@ -1,4 +1,4 @@
-import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutlet, useParams } from "react-router-dom";
 import { Suspense, createContext, useContext, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../auth";
@@ -6,6 +6,16 @@ import AiStatus from "./AiStatus";
 import { PageSkeleton } from "./Skeleton";
 import Logo from "./Logo";
 import { rememberProject } from "../lib/recent";
+import { api } from "../api";
+
+// Each animated page keeps the route it was created with. Without this, the page
+// that is fading out renders the *new* route too, so it mounts twice (and a
+// sample scan would start twice).
+function FrozenOutlet() {
+  const outlet = useOutlet();
+  const [frozen] = useState(outlet);
+  return frozen;
+}
 
 interface Prefs {
   studentMode: boolean;
@@ -56,8 +66,15 @@ export default function Shell() {
   const assistantTo = projectId ? `${base}/assistant` : "/assistant";
   const path = location.pathname;
 
+  const [projectName, setProjectName] = useState("");
+
   useEffect(() => {
-    if (projectId) rememberProject(projectId);
+    setProjectName("");
+    if (!projectId) return;
+    rememberProject(projectId);
+    api<{ name: string }>(`/api/projects/${projectId}`)
+      .then((body) => setProjectName(body.name))
+      .catch(() => undefined);
   }, [projectId]);
 
   function stepActive(path: string): boolean {
@@ -130,7 +147,15 @@ export default function Shell() {
         <div className="flex min-h-screen flex-col">
           {!isAuthPage && (
             <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
-              <p className="text-sm text-mist">{projectId ? `Project ${projectId}` : "No project loaded"}</p>
+              <p className="text-sm text-mist">
+                {projectId ? (
+                  <>
+                    Working on <span className="font-medium text-ink">{projectName || "your project"}</span>
+                  </>
+                ) : (
+                  "Pick an example or upload code to begin"
+                )}
+              </p>
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <label className="flex items-center gap-2 text-mist">
                   <input
@@ -138,7 +163,7 @@ export default function Shell() {
                     checked={studentMode}
                     onChange={(event) => setStudentMode(event.target.checked)}
                   />
-                  Student mode
+                  Simple explanations
                 </label>
                 <select
                   aria-label="Explanation language"
@@ -172,16 +197,19 @@ export default function Shell() {
                           My History
                         </Link>
                         <button type="button" onClick={() => void onLogout()} className="block w-full px-3 py-2 text-left hover:bg-cream">
-                          Logout
+                          Log out
                         </button>
                       </div>
                     )}
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    {isGuest && <span className="rounded-xl border border-line px-2 py-1 text-xs text-mist">Guest</span>}
-                    <Link to="/login" className="btn-secondary px-3 py-1.5 text-sm">
-                      Sign in
+                    <Link
+                      to="/login"
+                      className="btn-secondary px-3 py-1.5 text-sm"
+                      title={isGuest ? "You're exploring without an account. Sign in to keep your history." : undefined}
+                    >
+                      {isGuest ? "Sign in to save" : "Sign in"}
                     </Link>
                   </div>
                 )}
@@ -199,7 +227,7 @@ export default function Shell() {
                 className="page-enter"
               >
                 <Suspense fallback={<PageSkeleton />}>
-                  <Outlet />
+                  <FrozenOutlet />
                 </Suspense>
               </motion.div>
             </AnimatePresence>

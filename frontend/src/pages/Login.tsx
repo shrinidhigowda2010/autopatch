@@ -42,7 +42,7 @@ export default function Login() {
       <Logo className="h-11 w-auto" />
       <p className="mt-4 font-mono text-xs uppercase tracking-[0.2em] text-mist">Find it. Fix it. Prove it.</p>
       <h1 className="mt-2 text-3xl font-semibold text-ink">Sign in to FixPilot</h1>
-      <p className="mt-2 text-mist">Use your email or Coder ID. Or continue without an account to explore.</p>
+      <p className="mt-2 text-mist">Welcome back. Use your email or Coder ID. Just looking around? You can explore without an account.</p>
       <form onSubmit={onSubmit} className="card-3d mt-6 space-y-4 p-6">
         <label className="block text-sm">
           <span className="text-mist">Email or Coder ID</span>
@@ -71,7 +71,7 @@ export default function Login() {
           {busy ? "Signing in…" : "Sign in"}
         </button>
         <button type="button" onClick={guest} className="btn-secondary w-full">
-          Continue without account
+          Explore without an account
         </button>
       </form>
       <p className="mt-4 text-sm text-mist">

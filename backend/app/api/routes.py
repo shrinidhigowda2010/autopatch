@@ -21,7 +21,7 @@ from app.ids import new_id
 from app.ingest.files import IngestError
 from app.ingest.formats import extract_upload, is_archive
 from app.limiter import limit_request
-from app.llm.gemini import GeminiError, translate_text
+from app.llm.gemini import GeminiError, engine_status, last_key_error, translate_text
 from app.models import Bug, HistoryEvent, Patch, Project, Scan, TestEvent, TestRun, User
 from app.services import (
     SCRATCH_SOURCE,
@@ -46,6 +46,7 @@ from app.services import (
     user_can_access,
     workspace_for,
 )
+
 
 router = APIRouter(prefix="/api")
 
@@ -225,6 +226,11 @@ def health() -> dict:
         # Kept for older clients; UI shows ai_engine instead of any "demo" label.
         "demo_mode": not settings.gemini_configured,
         "ai_engine": "online" if settings.gemini_configured else "standby",
+        # Truthful live state: online | busy (models cooling down) | key_rejected | off
+        "gemini_status": engine_status(),
+        # Helps spot a mis-pasted key on the host: compare the length with the key you created.
+        "gemini_key_length": len(settings.gemini_api_key),
+        "gemini_last_error": last_key_error() if engine_status() == "key_rejected" else "",
         "database": "postgres" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
     }
 
@@ -540,17 +546,24 @@ def ask_ai_about_fix(
         raise HTTPException(404, "Patch not found.")
     bug = session.get(Bug, patch.bug_id)
     _project(session, patch.project_id, user)
-    if not settings.gemini_configured:
+    from app.llm.gemini import GeminiError, ask_gemini, gemini_usable
+
+    def local_answer() -> dict:
+        added = [line[1:].strip() for line in (patch.diff or "").splitlines() if line.startswith("+") and not line.startswith("+++")]
+        change = f" It adds: `{'; '.join(added[:3])}`." if added else ""
+        why = (bug.root_cause if bug else "").strip().rstrip(".")
         return {
             "answer": (
-                f"This fix changes {patch.file}. "
-                f"Why it's a bug: {bug.root_cause if bug else 'see the report'}. "
-                f"What the fix does: replaces the buggy lines with a safer version. "
-                f"Your question: {body.question}"
+                f"Here's the short version from the scan of {patch.file}.\n\n"
+                f"Why it's a bug: {why or 'see the bug report'}.\n\n"
+                f"What the fix does: it stops the bad input before it reaches the line that breaks.{change} "
+                "Nothing else in the file changes, and the tests on the Test page run before and after to prove it."
             ),
             "source": "local",
         }
-    from app.llm.gemini import GeminiError, ask_gemini
+
+    if not gemini_usable():
+        return local_answer()
 
     prompt = (
         "Answer the user's question about this proposed bug fix in clear short paragraphs.\n"
@@ -560,8 +573,8 @@ def ask_ai_about_fix(
     )
     try:
         answer = ask_gemini(prompt).strip()
-    except GeminiError as exc:
-        raise HTTPException(503, f"Ask AI needs Gemini. {exc}") from exc
+    except GeminiError:
+        return local_answer()
     return {"answer": answer, "source": "gemini"}
 
 

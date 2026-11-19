@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -35,6 +36,15 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 40
     app_env: str = "development"
     jwt_secret: str = "dev-only-change-me-fixpilot-jwt-secret"
+
+    @field_validator("gemini_api_key", mode="before")
+    @classmethod
+    def _clean_key(cls, value: object) -> str:
+        """Forgive the usual copy-paste slips: spaces, new lines, quotes, or the whole `NAME=value` line."""
+        key = str(value or "").strip()
+        if key.upper().startswith("GEMINI_API_KEY="):
+            key = key.split("=", 1)[1].strip()
+        return key.strip("\"'` ").strip()
 
     @property
     def repo_root(self) -> Path:

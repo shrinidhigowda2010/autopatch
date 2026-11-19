@@ -70,8 +70,8 @@ export default function Profile() {
         {[
           ["Total scans", stats?.total_scans ?? 0],
           ["Bugs found", stats?.bugs_found ?? 0],
-          ["Patches accepted", stats?.patches_accepted ?? 0],
-          ["Patches rejected", stats?.patches_rejected ?? 0],
+          ["Fixes accepted", stats?.patches_accepted ?? 0],
+          ["Fixes rejected", stats?.patches_rejected ?? 0],
         ].map(([label, value]) => (
           <div key={label as string} className="rounded-xl border border-line bg-panel p-4">
             <p className="text-sm text-mist">{label}</p>

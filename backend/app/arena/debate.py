@@ -130,7 +130,7 @@ def rule_debate(context: PatchContext, evidence: dict, attack: dict | None) -> t
     tests_line = _evidence_sentence(evidence)
 
     fixer = [
-        f"The patch targets the root cause directly: {context.bug.root_cause or context.bug.title}. "
+        f"The patch targets the root cause directly: {(context.bug.root_cause or context.bug.title).rstrip('.')}. "
         + (f"The new line `{guard}` handles it before the failing operation runs." if guard else "It changes only the failing lines."),
         (
             "The generated edge-case tests for this bug pass on the patched code."
@@ -186,13 +186,12 @@ def run_debate(
     other_bugs: list[str] | None = None,
 ) -> Iterator[dict]:
     """Yield events: turn, turn, ..., verdict. Falls back to rules if Gemini drops out."""
-    from app.config import settings
-    from app.llm.gemini import GeminiError
+    from app.llm.gemini import GeminiError, gemini_usable
 
     fallback_turns, fallback_verdict = rule_debate(context, evidence, attack)
     yield {"type": "start", "rounds": ROUNDS, "bug": context.bug.title, "file": context.patch.file}
 
-    if not (use_gemini and settings.gemini_configured):
+    if not (use_gemini and gemini_usable()):
         for turn in fallback_turns:
             yield {"type": "turn", **turn}
         yield {"type": "verdict", **fallback_verdict}
@@ -211,7 +210,7 @@ def run_debate(
         yield {"type": "verdict", **verdict, "engine": "gemini"}
     except (GeminiError, json.JSONDecodeError, ValueError, KeyError) as exc:
         log.info("debate fell back to rules: %s", exc)
-        yield {"type": "notice", "text": "The AI engine dropped out, so the rest of the debate uses the test evidence."}
+        yield {"type": "notice", "text": "Gemini is busy right now, so the rest of the debate is argued from the test results."}
         for turn in fallback_turns[len(turns):]:
             yield {"type": "turn", **turn}
         yield {"type": "verdict", **fallback_verdict}

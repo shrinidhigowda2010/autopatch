@@ -5,7 +5,7 @@ import { PageSkeleton } from "../components/Skeleton";
 import DiffView from "../components/DiffView";
 import SeverityBadge from "../components/Severity";
 import { usePrefs } from "../components/Shell";
-import { explanationFor, percent, sourceLabel } from "../lib/format";
+import { explanationFor, friendlyTime, percent, sourceLabel } from "../lib/format";
 import type { Bug } from "../types";
 
 export default function BugPage() {
@@ -93,7 +93,7 @@ export default function BugPage() {
         <ol className="mt-2 space-y-2 text-sm">
           {bug.change_history.map((event) => (
             <li key={event.at + event.message}>
-              <span className="font-mono text-xs text-mist">{event.at}</span> {event.message}
+              <span className="font-mono text-xs text-mist">{friendlyTime(event.at)}</span> {event.message}
             </li>
           ))}
         </ol>

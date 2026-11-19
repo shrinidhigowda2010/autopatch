@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { extensionFor, guessLanguage, isArchiveName, looksLikeUrl } from "../lib/language";
 
@@ -31,8 +31,8 @@ const FORMATS = [
 
 function checkLabel(language: string): string {
   return language === "Python"
-    ? "Full check: static tools + sandbox tests"
-    : "AI analysis only, not verified by tests";
+    ? "Full check: static tools, Gemini and tests"
+    : "Checked by Gemini only (no tests for this language yet)";
 }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -61,7 +61,7 @@ export default function Upload() {
     try {
       return await work();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : "That didn't work. Try again, or paste the code instead.");
       return undefined;
     } finally {
       setBusy("");
@@ -234,10 +234,17 @@ export default function Upload() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="text-3xl font-semibold">Upload</h1>
+      <h1 className="text-3xl font-semibold">Bring your code</h1>
       <p className="mt-2 text-mist">
-        Code files, archives, PDFs, Word docs, notebooks or screenshots of code, up to 8 MB. You can also press Ctrl+V
-        anywhere on this page.
+        Drop a file, paste code or share a link. FixPilot reads code files, zips, PDFs, Word docs, notebooks and even
+        screenshots of code, up to 8 MB. You can also press Ctrl+V anywhere on this page.
+      </p>
+      <p className="mt-2 text-sm text-mist">
+        No code handy?{" "}
+        <Link to="/#examples" className="font-medium text-ink underline">
+          Try a sample project
+        </Link>{" "}
+        and see the whole flow in a minute.
       </p>
 
       <div className="mt-6 flex gap-2 rounded-2xl border border-line bg-panel p-1" role="tablist">

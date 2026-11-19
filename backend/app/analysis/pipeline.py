@@ -93,13 +93,13 @@ def analyze_project(root: Path, sample_id: str | None = None, use_gemini: bool =
                 notes.append("gemini finished")
             except GeminiError as exc:
                 gemini_error = str(exc)
-                notes.append("AI layer on standby; using static analysis")
+                notes.append("Gemini unavailable right now, static analysis did the scan")
                 log.info("gemini skipped: %s", exc)
                 if sample_id:
                     mode = "demo"
             except Exception as exc:  # noqa: BLE001
                 gemini_error = str(exc)
-                notes.append("AI layer unavailable; using static analysis")
+                notes.append("Gemini unavailable right now, static analysis did the scan")
                 if sample_id:
                     mode = "demo"
     finally:
@@ -107,10 +107,10 @@ def analyze_project(root: Path, sample_id: str | None = None, use_gemini: bool =
     if ai_job is None and sample_id:
         mode = "demo"
         gemini_error = gemini_error or "GEMINI_API_KEY is not set"
-        notes.append("AI layer on standby; using static analysis and project knowledge")
+        notes.append("Gemini unavailable right now, static analysis did the scan")
     merged = merge_findings(groups)
     if mode == "demo" and sample_id:
         merged = attach_cache(sample_id, merged)
-        notes.append("project knowledge notes attached")
+        notes.append("added notes from the project's known-bug list")
     merged.sort(key=lambda item: ({"critical": 0, "high": 1, "medium": 2, "low": 3}.get(item.severity, 4), -item.confidence, item.file, item.line))
     return ScanReport(findings=merged, mode=mode, tool_notes=notes, gemini_error=gemini_error)
