@@ -44,15 +44,26 @@ function HeroFallback() {
   );
 }
 
+/** 3D only when motion is welcome, the device is not tiny, and WebGL works. */
+function canRender3d(): boolean {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+  const nav = navigator as Navigator & { connection?: { saveData?: boolean }; deviceMemory?: number };
+  if ((nav.hardwareConcurrency || 2) <= 2) return false;
+  if (nav.deviceMemory !== undefined && nav.deviceMemory <= 2) return false;
+  if (nav.connection?.saveData) return false;
+  try {
+    const canvas = document.createElement("canvas");
+    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
 export default function HeroShield() {
   const [allow3d, setAllow3d] = useState(false);
 
   useEffect(() => {
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const cores = navigator.hardwareConcurrency || 2;
-    const slow =
-      cores <= 2 || (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData;
-    setAllow3d(!reduced && !slow);
+    setAllow3d(canRender3d());
   }, []);
 
   if (!allow3d) {

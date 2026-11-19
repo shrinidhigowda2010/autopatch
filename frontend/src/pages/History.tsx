@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { EmptyState, ListSkeleton } from "../components/Skeleton";
 
 interface HistoryPayload {
   events: { kind: string; message: string; at: string; bug_id: string | null }[];
@@ -25,6 +26,16 @@ export default function History() {
         <a className="rounded-lg border border-line px-3 py-1.5" href={`/api/projects/${projectId}/export/zip`}>Export fixed zip</a>
       </div>
       {error && <p className="mt-4 text-bug">{error}</p>}
+      {!data && !error && (
+        <div className="mt-6">
+          <ListSkeleton />
+        </div>
+      )}
+      {data && data.events.length === 0 && (
+        <div className="mt-6">
+          <EmptyState title="Nothing here yet">Run a scan and every step will be recorded on this page.</EmptyState>
+        </div>
+      )}
       <ol className="mt-6 space-y-3">
         {(data?.events || []).map((event) => (
           <li key={event.at + event.message} className="rounded-lg border border-line bg-panel px-3 py-2">

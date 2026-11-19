@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
+import { PageSkeleton } from "../components/Skeleton";
 import CountUp from "../components/CountUp";
 import SeverityBadge from "../components/Severity";
 import type { Severity } from "../types";
@@ -29,7 +30,7 @@ export default function Dashboard() {
   }, [projectId]);
 
   if (error) return <p className="text-bug">{error}</p>;
-  if (!data) return <p className="text-mist">Loading the dashboard…</p>;
+  if (!data) return <PageSkeleton label="Loading the dashboard" />;
   const severity = Object.entries(data.counts.by_severity).map(([name, count]) => ({ name, count }));
   const category = Object.entries(data.counts.by_category).map(([name, count]) => ({ name, count }));
 

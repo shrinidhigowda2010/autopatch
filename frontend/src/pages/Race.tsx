@@ -162,7 +162,7 @@ export default function Race() {
                       : "border-line bg-panel text-mist"
                   }`}
                 >
-                  <p className="font-mono text-xs uppercase tracking-[0.2em] opacity-70">Stage {index + 1}</p>
+                  <p className="font-mono text-xs uppercase tracking-[0.2em] opacity-90">Stage {index + 1}</p>
                   <p className="mt-1 text-lg font-semibold">
                     {stage.label} {reached && (failed ? "✗" : "✓")}
                   </p>

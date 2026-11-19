@@ -80,14 +80,14 @@ export default function BugFixTyping() {
       <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-ink">Bug → Fix</p>
       <div className="space-y-3">
         <div>
-          <p className="text-[11px] text-ink/60">before</p>
+          <p className="text-[11px] text-mist">before</p>
           <p className={`mt-1 break-all ${showUnderline ? "decoration-bug underline decoration-2 underline-offset-4" : ""}`}>
             {bugText}
             {phase === "type-bug" && <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-ink align-middle" />}
           </p>
         </div>
         <div>
-          <p className="text-[11px] text-ink/60">after</p>
+          <p className="text-[11px] text-mist">after</p>
           <p className="mt-1 break-all text-fixed">
             {fixText}
             {phase === "type-fix" && <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-fixed align-middle" />}

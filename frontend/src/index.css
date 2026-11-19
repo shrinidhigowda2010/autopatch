@@ -105,3 +105,44 @@ pre {
     animation: none !important;
   }
 }
+
+/* Soft warm glow behind the assistant greeting. */
+.breathing-glow {
+  background: radial-gradient(closest-side, rgba(214, 160, 92, 0.32), rgba(245, 240, 230, 0));
+  animation: breathe 6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+
+/* Loading placeholder blocks. */
+.skeleton {
+  @apply rounded-xl bg-line;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .breathing-glow,
+  .skeleton {
+    animation: none !important;
+  }
+}

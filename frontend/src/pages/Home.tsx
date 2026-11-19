@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { api } from "../api";
 import BugFixTyping from "../components/BugFixTyping";
 import CountUp from "../components/CountUp";
+import { Skeleton } from "../components/Skeleton";
 import HeroShield from "../components/HeroShield";
 import Logo from "../components/Logo";
 import type { SampleInfo } from "../types";
@@ -46,12 +47,13 @@ export default function Home() {
   const [samples, setSamples] = useState<SampleInfo[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [bench, setBench] = useState({
-    bugsDetected: 12,
-    fixesVerified: 12,
-    falsePositives: 0,
-    projectsTested: 8,
-  });
+  // Filled from the measured benchmark (benchmark/results/latest.json via the API).
+  const [bench, setBench] = useState<{
+    bugsDetected: number;
+    fixesVerified: number;
+    falsePositives: number;
+    projectsTested: number;
+  } | null>(null);
 
   useEffect(() => {
     api<SampleInfo[]>("/api/samples").then(setSamples).catch((err: Error) => setError(err.message));
@@ -62,8 +64,8 @@ export default function Home() {
           (sum, row) => sum + (row.detected ?? row.ground_truth ?? 0),
           0,
         );
-        const bugsDetected = body.bug_count ?? (fromProjects || 12);
-        const rate = body.fix_success_rate ?? body.summary?.fix_success_rate ?? 1;
+        const bugsDetected = body.bug_count ?? fromProjects;
+        const rate = body.fix_success_rate ?? body.summary?.fix_success_rate ?? 0;
         const fixesVerified = Math.round(bugsDetected * (rate <= 1 ? rate : rate / 100));
         setBench({
           bugsDetected,
@@ -71,7 +73,7 @@ export default function Home() {
           falsePositives: Number(
             body.false_positive_count ?? body.false_positives ?? body.summary?.false_positives ?? 0,
           ),
-          projectsTested: body.project_count ?? (projects.length || 8),
+          projectsTested: body.project_count ?? projects.length,
         });
       })
       .catch(() => undefined);
@@ -121,19 +123,24 @@ export default function Home() {
       </section>
 
       <section className="mt-12 grid gap-3 rounded-2xl border border-line bg-panel p-5 shadow-card sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          ["Bugs detected", bench.bugsDetected],
-          ["Fixes verified", bench.fixesVerified],
-          ["False positives", bench.falsePositives],
-          ["Projects tested", bench.projectsTested],
-        ].map(([label, value]) => (
-          <div key={label as string} className="px-2 py-1">
-            <p className="text-sm text-ink/70">{label}</p>
-            <p className="mt-1 text-4xl font-semibold text-ink">
-              <CountUp value={value as number} />
-            </p>
+        {(
+          [
+            ["Bugs detected", bench?.bugsDetected],
+            ["Fixes verified", bench?.fixesVerified],
+            ["False positives", bench?.falsePositives],
+            ["Projects tested", bench?.projectsTested],
+          ] as const
+        ).map(([label, value]) => (
+          <div key={label} className="px-2 py-1">
+            <p className="text-sm text-mist">{label}</p>
+            <div className="mt-1 text-4xl font-semibold text-ink">
+              {value === undefined ? <Skeleton className="mt-1 h-10 w-16" /> : <CountUp value={value} />}
+            </div>
           </div>
         ))}
+        <p className="text-xs text-mist sm:col-span-2 lg:col-span-4">
+          Measured by the built-in benchmark on 8 seeded projects. <Link to="/benchmark" className="font-medium text-ink underline">See the details</Link>
+        </p>
       </section>
 
       <section className="mt-16">
@@ -154,7 +161,7 @@ export default function Home() {
                 transform: `rotateZ(${index === 0 ? -2 : index === 2 ? 2 : 0}deg)`,
               }}
             >
-              <p className="font-mono text-xs uppercase tracking-[0.18em] text-ink/60">0{index + 1}</p>
+              <p className="font-mono text-xs uppercase tracking-[0.18em] text-mist">0{index + 1}</p>
               <h3 className="mt-2 text-xl font-semibold text-ink">{item.title}</h3>
               <p className="mt-2 text-ink/80">{item.copy}</p>
             </motion.div>
@@ -186,6 +193,7 @@ export default function Home() {
         </p>
         {error && <p className="mt-4 text-bug">{error}</p>}
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          {samples.length === 0 && !error && [0, 1, 2, 3].map((key) => <Skeleton key={key} className="h-36" />)}
           {samples.map((sample) => (
             <button
               key={sample.id}
@@ -195,7 +203,7 @@ export default function Home() {
             >
               <p className="text-lg font-semibold">{sample.title}</p>
               <p className="mt-2 text-ink/80">{sample.blurb}</p>
-              <p className="mt-4 font-mono text-xs text-ink/70">
+              <p className="mt-4 font-mono text-xs text-mist">
                 {busy === sample.id ? "Loading…" : `${sample.bugs} known bugs`}
               </p>
             </button>
@@ -225,7 +233,7 @@ export default function Home() {
             <p className="mt-2 text-sm text-ink/80">Built at Sapthagiri NPS University</p>
           </div>
           <a
-            href="https://github.com"
+            href="https://github.com/shrinidhigowda2010/autopatch"
             target="_blank"
             rel="noreferrer"
             className="text-sm font-medium text-ink underline-offset-4 hover:underline"

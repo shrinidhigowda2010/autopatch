@@ -1,49 +1,17 @@
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { oneLight } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
 import { api } from "../api";
-import DiffView from "../components/DiffView";
+import { useAuth } from "../auth";
 import FileTree from "../components/FileTree";
-import Logo from "../components/Logo";
+import { usePrefs } from "../components/Shell";
+import ChatSidebar, { type ConversationRow } from "../components/assistant/ChatSidebar";
+import Composer, { type ChatMode } from "../components/assistant/Composer";
+import MessageBubble, { ThinkingDots, type ChatMsg, type PatchCard, type ToolStep } from "../components/assistant/MessageBubble";
+import { MenuIcon } from "../components/assistant/icons";
+import { listen, speechSupported } from "../lib/speech";
 import { getStoredToken } from "../token";
 import type { Project, TreeNode } from "../types";
-
-interface Conversation {
-  id: string;
-  title: string;
-  language: string;
-  updated_at: string;
-}
-
-interface ToolStep {
-  name: string;
-  label: string;
-  status: string;
-}
-
-interface PatchCard {
-  patch_id: string;
-  bug_id: string;
-  title: string;
-  file: string;
-  status: string;
-  diff: string;
-  before_code: string;
-  after_code: string;
-  confidence: number;
-}
-
-interface ChatMsg {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  tool_steps?: ToolStep[];
-  patches?: PatchCard[];
-  streaming?: boolean;
-}
 
 interface BugRow {
   id: string;
@@ -52,174 +20,150 @@ interface BugRow {
   file: string;
 }
 
-const QUICK = [
-  "Find all bugs in this project",
-  "Explain this bug simply",
-  "Why did this test fail?",
-  "Is this fix safe?",
-  "Make this code faster",
-  "Write tests for this function",
+const SUGGESTIONS = [
+  { title: "Find every bug", prompt: "Find all bugs in this project" },
+  { title: "Explain it simply", prompt: "Explain the most serious bug simply, like I'm new to coding" },
+  { title: "Fix and prove it", prompt: "Fix the most serious bug and run the tests to prove it" },
+  { title: "Review my code", prompt: "Review this project for risky code and missing edge cases" },
 ];
+
+const MAX_MESSAGE_CHARS = 12000;
+const TEXT_ATTACH_LIMIT = 200_000;
+const BINARY_TYPES = /\.(pdf|docx|png|jpe?g|webp|ipynb)$/i;
 
 function authHeader(): HeadersInit {
   const token = getStoredToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+function asChatMsg(msg: ChatMsg): ChatMsg {
+  return { ...msg, role: msg.role === "user" ? "user" : "assistant" };
+}
+
 export default function Assistant() {
   const { projectId = "" } = useParams();
   const [params, setParams] = useSearchParams();
+  const { user, initials } = useAuth();
+  const { language } = usePrefs(); // the header language drives replies and voice input
+
   const [project, setProject] = useState<Project | null>(null);
   const [bugs, setBugs] = useState<BugRow[]>([]);
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activeId, setActiveId] = useState<string>("");
+  const [conversations, setConversations] = useState<ConversationRow[]>([]);
+  const [activeId, setActiveId] = useState("");
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
-  const [language, setLanguage] = useState<"en" | "kn" | "hi">("en");
+  const [mode, setMode] = useState<ChatMode>("auto");
   const [busy, setBusy] = useState(false);
+  const [loadingChat, setLoadingChat] = useState(true);
+  const [attaching, setAttaching] = useState(false);
+  const [listening, setListening] = useState(false);
   const [error, setError] = useState("");
-  const [typing, setTyping] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== "undefined" && window.innerWidth >= 1024);
+  const [contextOpen, setContextOpen] = useState(false);
+
   const bottomRef = useRef<HTMLDivElement>(null);
+  const stopListening = useRef<(() => void) | null>(null);
   const bugParam = params.get("bug") || "";
+  const firstName = user?.full_name?.trim().split(/\s+/)[0] || "there";
+  const micSupported = speechSupported();
 
   const loadConversations = useCallback(async () => {
-    if (!projectId) return;
-    const body = await api<{ conversations: Conversation[] }>(
-      `/api/assistant/conversations?project_id=${projectId}`,
-    );
+    if (!projectId) return [];
+    const body = await api<{ conversations: ConversationRow[] }>(`/api/assistant/conversations?project_id=${projectId}`);
     setConversations(body.conversations);
     return body.conversations;
   }, [projectId]);
 
   const openConversation = useCallback(async (id: string) => {
-    const body = await api<Conversation & { messages: ChatMsg[] }>(`/api/assistant/conversations/${id}`);
-    setActiveId(id);
-    setLanguage((body.language as "en" | "kn" | "hi") || "en");
-    setMessages(
-      body.messages.map((msg) => ({
-        ...msg,
-        role: msg.role === "user" ? "user" : "assistant",
-      })),
-    );
+    setLoadingChat(true);
+    try {
+      const body = await api<ConversationRow & { messages: ChatMsg[] }>(`/api/assistant/conversations/${id}`);
+      setActiveId(id);
+      setMessages(body.messages.map(asChatMsg));
+    } finally {
+      setLoadingChat(false);
+    }
   }, []);
 
-  const ensureConversation = useCallback(async () => {
-    const list = (await loadConversations()) || [];
-    if (list[0]) {
-      await openConversation(list[0].id);
-      return list[0].id;
-    }
-    const created = await api<Conversation>("/api/assistant/conversations", {
+  const createConversation = useCallback(async () => {
+    const created = await api<ConversationRow>("/api/assistant/conversations", {
       method: "POST",
       body: JSON.stringify({ project_id: projectId, title: "New chat", language }),
     });
-    await loadConversations();
-    await openConversation(created.id);
+    setActiveId(created.id);
+    void loadConversations();
     return created.id;
-  }, [loadConversations, openConversation, projectId, language]);
+  }, [projectId, language, loadConversations]);
 
   useEffect(() => {
     if (!projectId) return;
     let cancelled = false;
     api<Project>(`/api/projects/${projectId}`)
-      .then((proj) => {
-        if (!cancelled) setProject(proj);
+      .then((proj) => !cancelled && setProject(proj))
+      .catch((err: Error) => !cancelled && setError(err.message));
+    api<{ bugs: BugRow[] }>(`/api/projects/${projectId}/dashboard`)
+      .then((dash) => !cancelled && setBugs(dash.bugs || []))
+      .catch(() => undefined);
+    loadConversations()
+      .then(async (list) => {
+        if (cancelled) return;
+        if (list[0]) await openConversation(list[0].id);
+        else setLoadingChat(false);
       })
       .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
+        if (cancelled) return;
+        setError(err.message);
+        setLoadingChat(false);
       });
-    api<{ bugs: BugRow[]; scan: { id: string } | null }>(`/api/projects/${projectId}/dashboard`)
-      .then((dash) => {
-        if (!cancelled) setBugs(dash.bugs || []);
-      })
-      .catch(() => undefined);
-    ensureConversation().catch((err: Error) => {
-      if (!cancelled) setError(err.message);
-    });
     return () => {
       cancelled = true;
     };
-    // Intentionally only when the project changes — language edits should not reset the chat.
+    // Only when the project changes; a language switch should not reset the chat.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   useEffect(() => {
-    if (bugParam) {
-      setInput((prev) => (prev.includes(bugParam) ? prev : `Explain bug ${bugParam} simply`));
-    }
+    if (bugParam) setInput((prev) => (prev.includes(bugParam) ? prev : `Explain bug ${bugParam} simply`));
   }, [bugParam]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typing]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
 
-  async function newChat() {
-    const created = await api<Conversation>("/api/assistant/conversations", {
-      method: "POST",
-      body: JSON.stringify({ project_id: projectId, title: "New chat", language }),
-    });
-    await loadConversations();
-    setMessages([]);
-    setActiveId(created.id);
-  }
+  useEffect(() => () => stopListening.current?.(), []);
 
-  async function renameChat(id: string) {
-    const title = window.prompt("Rename chat", conversations.find((c) => c.id === id)?.title || "Chat");
-    if (!title) return;
-    await api(`/api/assistant/conversations/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ title }),
-    });
-    await loadConversations();
-  }
-
-  async function deleteChat(id: string) {
-    if (!window.confirm("Delete this conversation?")) return;
-    await api(`/api/assistant/conversations/${id}`, { method: "DELETE" });
-    const list = (await loadConversations()) || [];
-    if (id === activeId) {
-      if (list[0]) await openConversation(list[0].id);
-      else {
-        setActiveId("");
-        setMessages([]);
-        await newChat();
-      }
-    }
+  function updateReply(id: string, change: (msg: ChatMsg) => ChatMsg) {
+    setMessages((prev) => prev.map((msg) => (msg.id === id ? change(msg) : msg)));
   }
 
   async function sendMessage(text: string) {
-    if (!text.trim() || busy) return;
-    let convId = activeId;
-    if (!convId) convId = await ensureConversation();
+    const content = text.trim();
+    if (!content || busy) return;
+    stopListening.current?.();
     setBusy(true);
-    setTyping(true);
     setError("");
-    const userMsg: ChatMsg = { id: `local-${Date.now()}`, role: "user", content: text.trim() };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput("");
-    const assistantId = `stream-${Date.now()}`;
+
+    const replyId = `stream-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
-      { id: assistantId, role: "assistant", content: "", tool_steps: [], patches: [], streaming: true },
+      { id: `local-${Date.now()}`, role: "user", content },
+      { id: replyId, role: "assistant", content: "", tool_steps: [], patches: [], streaming: true },
     ]);
+    setInput("");
 
     try {
+      const convId = activeId || (await createConversation());
       const response = await fetch(`/api/assistant/conversations/${convId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeader() },
-        body: JSON.stringify({
-          content: text.trim(),
-          language,
-          bug_id: bugParam || undefined,
-        }),
+        body: JSON.stringify({ content, language, mode, bug_id: bugParam || undefined }),
       });
-      if (!response.ok || !response.body) {
-        throw new Error("Could not reach the assistant.");
-      }
+      if (!response.ok || !response.body) throw new Error("Could not reach the assistant. Please try again.");
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      while (true) {
+      for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
@@ -230,344 +174,378 @@ export default function Assistant() {
           if (!line) continue;
           const data = JSON.parse(line.slice(5).trim()) as Record<string, unknown>;
           if (data.type === "token") {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantId ? { ...msg, content: msg.content + String(data.text || "") } : msg,
-              ),
-            );
+            updateReply(replyId, (msg) => ({ ...msg, content: msg.content + String(data.text || "") }));
           } else if (data.type === "tool") {
             const step = data as unknown as ToolStep;
-            setMessages((prev) =>
-              prev.map((msg) => {
-                if (msg.id !== assistantId) return msg;
-                const steps = [...(msg.tool_steps || [])];
-                const idx = steps.findIndex((s) => s.name === step.name && s.label === step.label);
-                if (idx >= 0) steps[idx] = step;
-                else steps.push(step);
-                return { ...msg, tool_steps: steps };
-              }),
-            );
+            updateReply(replyId, (msg) => {
+              const steps = [...(msg.tool_steps || [])];
+              const index = steps.findIndex((s) => s.name === step.name && s.label === step.label);
+              if (index >= 0) steps[index] = step;
+              else steps.push(step);
+              return { ...msg, tool_steps: steps };
+            });
           } else if (data.type === "patch") {
             const patch = data.patch as PatchCard;
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantId
-                  ? { ...msg, patches: [...(msg.patches || []), patch] }
-                  : msg,
-              ),
-            );
+            updateReply(replyId, (msg) => ({ ...msg, patches: [...(msg.patches || []), patch] }));
           } else if (data.type === "saved") {
-            const saved = data.message as ChatMsg;
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantId
-                  ? {
-                      ...saved,
-                      role: "assistant",
-                      streaming: false,
-                    }
-                  : msg,
-              ),
-            );
+            updateReply(replyId, () => ({ ...(data.message as ChatMsg), role: "assistant", streaming: false }));
             await loadConversations();
           } else if (data.type === "error") {
-            setError(String(data.detail || "Assistant error"));
+            setError(String(data.detail || "The assistant hit a problem."));
           }
         }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Assistant failed.");
-      setMessages((prev) => prev.filter((msg) => msg.id !== assistantId));
+      setError(err instanceof Error ? err.message : "The assistant hit a problem.");
+      setMessages((prev) => prev.filter((msg) => msg.id !== replyId));
     } finally {
       setBusy(false);
-      setTyping(false);
-      setMessages((prev) => prev.map((msg) => (msg.id === assistantId ? { ...msg, streaming: false } : msg)));
+      updateReply(replyId, (msg) => ({ ...msg, streaming: false }));
     }
   }
 
-  function onSubmit(event: FormEvent) {
-    event.preventDefault();
-    void sendMessage(input);
+  function regenerate(replyIndex: number) {
+    const question = [...messages.slice(0, replyIndex)].reverse().find((msg) => msg.role === "user");
+    if (question) void sendMessage(question.content);
   }
 
-  function insertBug(bug: BugRow) {
-    setParams({ bug: bug.id });
-    setInput(`Explain bug ${bug.id} (${bug.title}) simply`);
+  async function sendFeedback(messageId: string, value: number) {
+    const before = messages.find((msg) => msg.id === messageId)?.feedback ?? null;
+    updateReply(messageId, (msg) => ({ ...msg, feedback: value || null }));
+    try {
+      await api(`/api/assistant/messages/${messageId}/feedback`, { method: "POST", body: JSON.stringify({ value }) });
+    } catch {
+      updateReply(messageId, (msg) => ({ ...msg, feedback: before }));
+      setError("Could not save your feedback.");
+    }
   }
 
-  async function decidePatch(patchId: string, action: "approve" | "reject") {
-    if (action === "approve") {
-      await api(`/api/patches/${patchId}/approve`, { method: "POST" });
-    } else {
-      await api(`/api/patches/${patchId}/reject`, {
-        method: "POST",
-        body: JSON.stringify({ note: "Rejected from FixPilot Assistant" }),
+  async function attachFile(file: File) {
+    setAttaching(true);
+    setError("");
+    try {
+      let snippets: { path: string; content: string; language: string }[];
+      if (!BINARY_TYPES.test(file.name) && file.size <= TEXT_ATTACH_LIMIT) {
+        snippets = [{ path: file.name, content: await file.text(), language: "" }];
+      } else {
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch("/api/projects/extract", { method: "POST", headers: authHeader(), body: form });
+        if (!response.ok) throw new Error("Could not read that file.");
+        const body = (await response.json()) as { files: typeof snippets };
+        snippets = body.files;
+      }
+      if (!snippets.length || !snippets.some((item) => item.content.trim())) {
+        throw new Error("No code found in that file.");
+      }
+      setInput((prev) => {
+        const intro = prev.trim() || "Please look at this code:";
+        let room = MAX_MESSAGE_CHARS - intro.length - 40;
+        const blocks = snippets.map((item) => {
+          const code = item.content.slice(0, Math.max(0, room));
+          room -= code.length + 20;
+          return `\`\`\`${item.language}\n# ${item.path}\n${code}\n\`\`\``;
+        });
+        return `${intro}\n\n${blocks.join("\n\n")}`.slice(0, MAX_MESSAGE_CHARS);
       });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not attach that file.");
+    } finally {
+      setAttaching(false);
     }
-    setMessages((prev) =>
-      prev.map((msg) => ({
-        ...msg,
-        patches: (msg.patches || []).map((p) =>
-          p.patch_id === patchId ? { ...p, status: action === "approve" ? "applied" : "rejected" } : p,
-        ),
-      })),
+  }
+
+  function toggleMic() {
+    if (listening) {
+      stopListening.current?.();
+      return;
+    }
+    const base = input.trim();
+    setListening(true);
+    stopListening.current = listen(
+      language,
+      (spoken) => setInput(base ? `${base} ${spoken}` : spoken),
+      (problem) => {
+        setListening(false);
+        stopListening.current = null;
+        if (problem) setError(problem);
+      },
     );
   }
 
+  async function decidePatch(patchId: string, action: "approve" | "reject") {
+    try {
+      if (action === "approve") {
+        await api(`/api/patches/${patchId}/approve`, { method: "POST" });
+      } else {
+        await api(`/api/patches/${patchId}/reject`, {
+          method: "POST",
+          body: JSON.stringify({ note: "Rejected from FixPilot Assistant" }),
+        });
+      }
+      const status = action === "approve" ? "applied" : "rejected";
+      setMessages((prev) =>
+        prev.map((msg) => ({
+          ...msg,
+          patches: (msg.patches || []).map((p) => (p.patch_id === patchId ? { ...p, status } : p)),
+        })),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update the patch.");
+    }
+  }
+
+  async function newChat() {
+    setError("");
+    if (activeId && messages.length === 0) return; // already on a fresh chat
+    setActiveId("");
+    setMessages([]);
+    if (window.innerWidth < 768) setSidebarOpen(false);
+  }
+
+  async function renameChat(id: string) {
+    const title = window.prompt("Rename chat", conversations.find((c) => c.id === id)?.title || "Chat");
+    if (!title?.trim()) return;
+    await api(`/api/assistant/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title: title.trim() }) });
+    await loadConversations();
+  }
+
+  async function deleteChat(id: string) {
+    if (!window.confirm("Delete this conversation?")) return;
+    await api(`/api/assistant/conversations/${id}`, { method: "DELETE" });
+    const list = await loadConversations();
+    if (id === activeId) {
+      if (list[0]) await openConversation(list[0].id);
+      else {
+        setActiveId("");
+        setMessages([]);
+      }
+    }
+  }
+
+  function selectConversation(id: string) {
+    if (window.innerWidth < 768) setSidebarOpen(false);
+    void openConversation(id);
+  }
+
+  function attachBug(bug: BugRow) {
+    setParams({ bug: bug.id });
+    setInput(`Explain bug ${bug.id} (${bug.title}) simply`);
+    setContextOpen(false);
+  }
+
+  const empty = !loadingChat && messages.length === 0;
+  const lastReplyIndex = messages.map((msg) => msg.role).lastIndexOf("assistant");
   const tree: TreeNode[] = project?.tree || [];
 
-  return (
-    <div className="-mx-5 -my-6 flex h-[calc(100vh-3.5rem)] min-h-[560px] flex-col md:flex-row">
-      {/* Conversations */}
-      <aside className="flex w-full flex-col border-b border-line bg-panel md:w-64 md:border-b-0 md:border-r">
-        <div className="flex items-center justify-between gap-2 border-b border-line px-3 py-3">
-          <div>
-            <p className="text-sm font-semibold">FixPilot Assistant</p>
-            <p className="text-xs text-mist">Project chats</p>
-          </div>
-          <button type="button" onClick={() => void newChat()} className="btn-secondary px-2 py-1 text-xs">
-            New chat
-          </button>
-        </div>
-        <ul className="flex-1 overflow-auto p-2">
-          {conversations.map((conv) => (
-            <li key={conv.id} className="mb-1">
-              <button
-                type="button"
-                onClick={() => void openConversation(conv.id)}
-                className={`w-full rounded-xl px-2 py-2 text-left text-sm ${
-                  conv.id === activeId ? "bg-ink text-cream" : "hover:bg-cream"
-                }`}
-              >
-                <span className="line-clamp-2">{conv.title}</span>
-              </button>
-              <div className="mt-1 flex gap-1 px-1">
-                <button type="button" className="text-[11px] text-mist hover:underline" onClick={() => void renameChat(conv.id)}>
-                  Rename
-                </button>
-                <button type="button" className="text-[11px] text-mist hover:underline" onClick={() => void deleteChat(conv.id)}>
-                  Delete
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </aside>
+  const composer = (large: boolean) => (
+    <Composer
+      value={input}
+      onChange={setInput}
+      onSend={() => void sendMessage(input)}
+      mode={mode}
+      onModeChange={setMode}
+      onAttach={(file) => void attachFile(file)}
+      onMic={toggleMic}
+      listening={listening}
+      micSupported={micSupported}
+      busy={busy}
+      attaching={attaching}
+      large={large}
+    />
+  );
 
-      {/* Chat */}
-      <section className="flex min-w-0 flex-1 flex-col bg-cream">
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-3">
-          <div>
-            <h1 className="text-lg font-semibold">Discuss your code</h1>
-            <p className="text-sm text-mist">{project?.name || projectId}</p>
-          </div>
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value as "en" | "kn" | "hi")}
-            className="rounded-xl border border-line bg-panel px-2 py-1.5 text-sm"
-            aria-label="Assistant language"
+  return (
+    <div className="relative -mx-5 -my-6 flex h-[calc(100dvh-3.5rem)] min-h-[520px] overflow-hidden">
+      <ChatSidebar
+        open={sidebarOpen}
+        onToggle={() => setSidebarOpen((v) => !v)}
+        conversations={conversations}
+        loading={loadingChat && conversations.length === 0}
+        activeId={activeId}
+        projectId={projectId}
+        coderId={user?.coder_id || ""}
+        initials={user ? initials : "G"}
+        name={user?.full_name || "Guest"}
+        onNewChat={() => void newChat()}
+        onOpen={selectConversation}
+        onRename={(id) => void renameChat(id)}
+        onDelete={(id) => void deleteChat(id)}
+      />
+
+      <section className="relative flex min-w-0 flex-1 flex-col bg-cream">
+        <header className="flex items-center gap-2 px-4 py-3">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="grid h-9 w-9 place-items-center rounded-full hover:bg-panel md:hidden"
+            aria-label="Open chats"
           >
-            <option value="en">English</option>
-            <option value="kn">ಕನ್ನಡ</option>
-            <option value="hi">हिन्दी</option>
-          </select>
+            <MenuIcon className="h-5 w-5" />
+          </button>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{project?.name || "Your project"}</p>
+            <p className="truncate text-xs text-mist">FixPilot Assistant · nothing changes until you approve</p>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setContextOpen((v) => !v)}
+              className="h-9 whitespace-nowrap rounded-full border border-line bg-panel px-3 text-sm text-ink hover:border-ink xl:hidden"
+              aria-expanded={contextOpen}
+            >
+              Context
+            </button>
+          </div>
         </header>
 
-        <div className="flex-1 space-y-4 overflow-auto px-4 py-4">
-          {messages.length === 0 && (
-            <div className="rounded-2xl border border-line bg-panel p-4 text-sm text-mist">
-              Ask about bugs, tests, or fixes. The assistant can scan files and propose patches — nothing is applied
-              until you Approve.
+        <LayoutGroup>
+          {loadingChat ? (
+            <div className="mx-auto w-full max-w-3xl flex-1 space-y-5 px-4 py-6" aria-label="Loading conversation">
+              <div className="skeleton ml-auto h-10 w-2/5" />
+              <div className="space-y-2">
+                <div className="skeleton h-4 w-11/12" />
+                <div className="skeleton h-4 w-4/5" />
+                <div className="skeleton h-4 w-3/5" />
+              </div>
+              <div className="skeleton ml-auto h-10 w-1/3" />
             </div>
-          )}
-          {messages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              msg={msg}
-              projectId={projectId}
-              onApprove={(id) => void decidePatch(id, "approve")}
-              onReject={(id) => void decidePatch(id, "reject")}
-            />
-          ))}
-          {typing && (
-            <div className="flex items-center gap-2 text-sm text-mist">
-              <Logo markOnly className="h-6 w-auto" />
-              <span className="animate-pulse">FixPilot is thinking…</span>
-            </div>
-          )}
-          <div ref={bottomRef} />
-        </div>
-
-        <div className="border-t border-line px-4 py-2">
-          <div className="mb-2 flex flex-wrap gap-2">
-            {QUICK.map((chip) => (
-              <button
-                key={chip}
-                type="button"
-                disabled={busy}
-                onClick={() => void sendMessage(chip)}
-                className="rounded-full border border-line bg-panel px-3 py-1 text-xs text-mist hover:border-ink"
+          ) : empty ? (
+            <div className="relative flex flex-1 flex-col items-center justify-center overflow-auto px-4 pb-10">
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+                <div className="breathing-glow h-[420px] w-[min(720px,100%)] rounded-full" />
+              </div>
+              <motion.h1
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="relative mb-8 text-center text-3xl font-semibold leading-tight tracking-tight sm:text-4xl"
               >
-                {chip}
-              </button>
-            ))}
-          </div>
-          {error && <p className="mb-2 text-sm text-bug">{error}</p>}
-          <form onSubmit={onSubmit} className="flex gap-2">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about this project…"
-              className="flex-1 rounded-2xl border border-line bg-panel px-3 py-2.5"
-              disabled={busy}
-            />
-            <button type="submit" disabled={busy || !input.trim()} className="btn-primary disabled:opacity-60">
-              Send
-            </button>
-          </form>
-        </div>
+                Hi {firstName}, I'm FixPilot.
+                <span className="block text-ink/80">What should we fix today?</span>
+              </motion.h1>
+              <div className="relative w-full max-w-2xl">{composer(true)}</div>
+              {error && <p className="relative mt-3 text-sm text-bug">{error}</p>}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.25, duration: 0.4 }}
+                className="relative mt-6 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2"
+              >
+                {SUGGESTIONS.map((chip) => (
+                  <button
+                    key={chip.title}
+                    type="button"
+                    onClick={() => void sendMessage(chip.prompt)}
+                    className="rounded-2xl border border-line bg-panel px-4 py-3 text-left transition hover:-translate-y-0.5 hover:border-ink hover:shadow-card"
+                  >
+                    <span className="block text-sm font-semibold">{chip.title}</span>
+                    <span className="mt-0.5 block text-xs text-mist">{chip.prompt}</span>
+                  </button>
+                ))}
+              </motion.div>
+            </div>
+          ) : (
+            <>
+              <div className="flex-1 overflow-auto px-4">
+                <div className="mx-auto w-full max-w-3xl space-y-6 py-4">
+                  <AnimatePresence initial={false}>
+                    {messages.map((msg, index) => (
+                      <motion.div
+                        key={msg.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.25 }}
+                      >
+                        <MessageBubble
+                          msg={msg}
+                          projectId={projectId}
+                          canRegenerate={index === lastReplyIndex && !busy}
+                          onApprove={(id) => void decidePatch(id, "approve")}
+                          onReject={(id) => void decidePatch(id, "reject")}
+                          onRegenerate={() => regenerate(index)}
+                          onFeedback={(value) => void sendFeedback(msg.id, value)}
+                        />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  {busy && messages[messages.length - 1]?.content && (
+                    <div className="pl-10">
+                      <ThinkingDots />
+                    </div>
+                  )}
+                  <div ref={bottomRef} />
+                </div>
+              </div>
+              <div className="px-4 pb-4 pt-2">
+                <div className="mx-auto w-full max-w-3xl">
+                  {error && <p className="mb-2 text-sm text-bug">{error}</p>}
+                  {composer(false)}
+                  <p className="mt-2 text-center text-xs text-mist">
+                    FixPilot can be wrong. Patches are only applied after you approve them.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+        </LayoutGroup>
       </section>
 
-      {/* Context panel */}
-      <aside className="hidden w-72 flex-col border-l border-line bg-panel lg:flex">
-        <div className="border-b border-line px-3 py-3">
-          <p className="text-sm font-semibold">Project context</p>
-          <p className="text-xs text-mist">Click a bug to attach it</p>
+      {/* Project context: always visible on wide screens, a drawer elsewhere. */}
+      <aside
+        className={`z-30 w-72 shrink-0 flex-col border-l border-line bg-panel ${
+          contextOpen ? "absolute inset-y-0 right-0 flex shadow-card" : "hidden"
+        } xl:static xl:flex xl:shadow-none`}
+      >
+        <div className="flex items-center justify-between border-b border-line px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold">Project context</p>
+            <p className="text-xs text-mist">Tap a bug to ask about it</p>
+          </div>
+          <button type="button" onClick={() => setContextOpen(false)} className="text-sm xl:hidden" aria-label="Close context">
+            ✕
+          </button>
         </div>
-        <div className="max-h-[40%] overflow-auto border-b border-line p-3">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-mist">Bugs</p>
-          <ul className="space-y-1">
-            {bugs.length === 0 && <li className="text-xs text-mist">No findings yet — run a scan.</li>}
-            {bugs.map((bug) => (
-              <li key={bug.id}>
-                <button
-                  type="button"
-                  onClick={() => insertBug(bug)}
-                  className="w-full rounded-xl border border-line bg-cream px-2 py-1.5 text-left text-xs hover:border-ink"
-                >
-                  <span className="font-medium">{bug.title}</span>
-                  <span className="mt-0.5 block font-mono text-[10px] text-mist">
-                    {bug.file} · {bug.severity}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+        <div className="max-h-[45%] overflow-auto border-b border-line p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-mist">Bugs</p>
+          {bugs.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-line p-3 text-xs text-mist">
+              No findings yet.{" "}
+              <Link to={`/p/${projectId}/scan`} className="font-medium text-ink underline">
+                Run a scan
+              </Link>{" "}
+              or ask me to find bugs.
+            </div>
+          ) : (
+            <ul className="space-y-1.5">
+              {bugs.map((bug) => (
+                <li key={bug.id}>
+                  <button
+                    type="button"
+                    onClick={() => attachBug(bug)}
+                    className="w-full rounded-xl border border-line bg-cream px-3 py-2 text-left text-xs hover:border-ink"
+                  >
+                    <span className="font-medium">{bug.title}</span>
+                    <span className="mt-0.5 block font-mono text-[11px] text-mist">
+                      {bug.file} · {bug.severity}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
         <div className="flex-1 overflow-auto p-3">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-mist">Files</p>
-          {tree.length > 0 ? <FileTree nodes={tree} /> : <p className="text-xs text-mist">No tree yet.</p>}
-          <Link to={`/p/${projectId}/fix`} className="mt-4 inline-block text-xs font-medium underline-offset-2 hover:underline">
-            Open Fix page →
-          </Link>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-mist">Files</p>
+          {tree.length > 0 ? (
+            <FileTree nodes={tree} />
+          ) : project ? (
+            <p className="text-xs text-mist">No files to show yet.</p>
+          ) : (
+            <div className="skeleton h-24" />
+          )}
         </div>
       </aside>
     </div>
-  );
-}
-
-function MessageBubble({
-  msg,
-  projectId,
-  onApprove,
-  onReject,
-}: {
-  msg: ChatMsg;
-  projectId: string;
-  onApprove: (patchId: string) => void;
-  onReject: (patchId: string) => void;
-}) {
-  const isUser = msg.role === "user";
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} gap-2`}>
-      {!isUser && <Logo markOnly className="mt-1 h-8 w-auto shrink-0" />}
-      <div className={`max-w-[85%] space-y-2 ${isUser ? "items-end" : "items-start"}`}>
-        <div
-          className={`rounded-2xl px-3 py-2 text-sm shadow-emboss ${
-            isUser ? "bg-ink text-cream" : "border border-line bg-panel text-ink"
-          }`}
-        >
-          {isUser ? (
-            <p className="whitespace-pre-wrap">{msg.content}</p>
-          ) : (
-            <Markdown body={msg.content || (msg.streaming ? "…" : "")} />
-          )}
-        </div>
-        {(msg.tool_steps || []).map((step, index) => (
-          <div key={`${step.name}-${index}`} className="rounded-xl border border-line bg-cream px-3 py-2 text-xs text-mist shadow-emboss">
-            {step.name === "run_tests" ? "🧪" : step.name.includes("scan") || step.name.includes("search") ? "🔍" : "✅"}{" "}
-            {step.label}
-          </div>
-        ))}
-        {(msg.patches || []).map((patch) => (
-          <div key={patch.patch_id} className="card-3d max-w-xl p-3">
-            <p className="text-sm font-semibold">{patch.title}</p>
-            <p className="font-mono text-xs text-mist">
-              {patch.file} · {patch.status} · {Math.round(patch.confidence * 100)}%
-            </p>
-            <div className="mt-2">
-              <DiffView before={patch.before_code} after={patch.after_code} diff={patch.diff} />
-            </div>
-            {patch.status === "proposed" && (
-              <div className="mt-2 flex gap-2">
-                <button type="button" className="btn-primary px-3 py-1.5 text-xs" onClick={() => onApprove(patch.patch_id)}>
-                  Approve
-                </button>
-                <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => onReject(patch.patch_id)}>
-                  Reject
-                </button>
-                <Link to={`/p/${projectId}/fix`} className="btn-secondary px-3 py-1.5 text-xs">
-                  Edit on Fix page
-                </Link>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Markdown({ body }: { body: string }) {
-  return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        code({ className, children, ...props }) {
-          const match = /language-(\w+)/.exec(className || "");
-          const code = String(children).replace(/\n$/, "");
-          if (match) {
-            return (
-              <div className="relative my-2 overflow-hidden rounded-xl border border-line">
-                <button
-                  type="button"
-                  className="absolute right-2 top-2 z-10 rounded-lg border border-line bg-panel px-2 py-0.5 text-[10px]"
-                  onClick={() => void navigator.clipboard.writeText(code)}
-                >
-                  Copy
-                </button>
-                <SyntaxHighlighter style={oneLight} language={match[1]} PreTag="div">
-                  {code}
-                </SyntaxHighlighter>
-              </div>
-            );
-          }
-          return (
-            <code className="rounded bg-cream px-1 font-mono text-[0.85em]" {...props}>
-              {children}
-            </code>
-          );
-        },
-        a({ href, children }) {
-          return (
-            <a href={href} className="underline" target="_blank" rel="noreferrer">
-              {children}
-            </a>
-          );
-        },
-      }}
-    >
-      {body}
-    </ReactMarkdown>
   );
 }

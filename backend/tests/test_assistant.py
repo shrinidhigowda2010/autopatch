@@ -1,4 +1,4 @@
-"""Repairo Assistant: conversations, isolation, tools, redaction."""
+"""FixPilot Assistant: conversations, isolation, tools, redaction, feedback."""
 
 from __future__ import annotations
 
@@ -187,3 +187,41 @@ def test_execute_search_tool_on_sample(client):
         assert "hits" in result
     finally:
         session.close()
+
+
+def test_reply_feedback_is_stored_and_mode_is_accepted(client):
+    project_id = _project_for(client)
+    conv = client.post("/api/assistant/conversations", json={"project_id": project_id}).json()
+
+    with mock.patch("app.agent.runner.settings") as settings:
+        settings.gemini_configured = False
+        streamed = client.post(
+            f"/api/assistant/conversations/{conv['id']}/messages",
+            json={"content": "Review this project", "mode": "review"},
+        )
+    assert streamed.status_code == 200, streamed.text
+
+    messages = client.get(f"/api/assistant/conversations/{conv['id']}").json()["messages"]
+    user_msg = next(msg for msg in messages if msg["role"] == "user")
+    reply = next(msg for msg in messages if msg["role"] == "assistant")
+    assert user_msg["content"] == "Review this project"  # the mode hint is not saved
+    assert reply["feedback"] is None
+
+    liked = client.post(f"/api/assistant/messages/{reply['id']}/feedback", json={"value": 1})
+    assert liked.status_code == 200, liked.text
+    assert liked.json()["feedback"] == 1
+
+    disliked = client.post(f"/api/assistant/messages/{reply['id']}/feedback", json={"value": -1})
+    assert disliked.json()["feedback"] == -1
+    messages = client.get(f"/api/assistant/conversations/{conv['id']}").json()["messages"]
+    assert next(msg for msg in messages if msg["id"] == reply["id"])["feedback"] == -1
+
+    cleared = client.post(f"/api/assistant/messages/{reply['id']}/feedback", json={"value": 0})
+    assert cleared.json()["feedback"] is None
+
+    assert client.post(f"/api/assistant/messages/{user_msg['id']}/feedback", json={"value": 1}).status_code == 404
+    assert client.post(f"/api/assistant/messages/{reply['id']}/feedback", json={"value": 5}).status_code == 422
+    bad_mode = client.post(
+        f"/api/assistant/conversations/{conv['id']}/messages", json={"content": "hi", "mode": "hack"}
+    )
+    assert bad_mode.status_code == 422

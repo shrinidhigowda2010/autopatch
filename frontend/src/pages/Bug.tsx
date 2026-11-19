@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
+import { PageSkeleton } from "../components/Skeleton";
 import DiffView from "../components/DiffView";
 import SeverityBadge from "../components/Severity";
 import { usePrefs } from "../components/Shell";
@@ -18,7 +19,7 @@ export default function BugPage() {
   }, [bugId]);
 
   if (error) return <p className="text-bug">{error}</p>;
-  if (!bug) return <p className="text-mist">Loading the bug report…</p>;
+  if (!bug) return <PageSkeleton label="Loading the bug report" />;
   const patch = bug.suggested_patch[0];
   const confidence = bug.severity_and_confidence;
 

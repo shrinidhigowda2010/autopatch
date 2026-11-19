@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 OptionalUser = Annotated[User | None, Depends(get_optional_user)]
 chat_limiter = RateLimiter(limit=20, window=60.0)
 
-MAX_MESSAGE_CHARS = 4000
+MAX_MESSAGE_CHARS = 12000  # room for an attached file
 MAX_TITLE_CHARS = 120
 
 
@@ -46,6 +46,18 @@ class MessageIn(BaseModel):
     content: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
     language: str | None = Field(default=None, pattern="^(en|kn|hi)$")
     bug_id: str | None = None
+    mode: str = Field(default="auto", pattern="^(auto|explain|fix|review)$")
+
+
+class FeedbackIn(BaseModel):
+    value: int = Field(ge=-1, le=1)  # 1 helpful, -1 not helpful, 0 clears
+
+
+MODE_HINTS = {
+    "explain": "Mode: Explain. Explain clearly and do not propose patches.",
+    "fix": "Mode: Fix. Find the cause and propose a minimal patch for approval.",
+    "review": "Mode: Review. Review the code for bugs, risks and edge cases; list them by severity.",
+}
 
 
 def _project(session: Session, project_id: str, user: User | None) -> Project:
@@ -89,6 +101,7 @@ def _msg_dict(row: ChatMessage) -> dict:
         "content": row.content,
         "tool_steps": json.loads(row.tool_steps_json or "[]"),
         "patches": json.loads(row.patches_json or "[]"),
+        "feedback": row.feedback,
         "created_at": row.created_at.isoformat(),
     }
 
@@ -207,6 +220,8 @@ def post_message(
     project_id_value = project.id
     language = row.language
     user_content = content
+    mode_hint = MODE_HINTS.get(body.mode, "")
+    model_content = f"{content}\n\n({mode_hint})" if mode_hint else content
     user_message_id = user_msg.id
 
     def event_stream() -> Iterator[str]:
@@ -229,7 +244,7 @@ def post_message(
                     db,
                     proj,
                     history,
-                    user_content,
+                    model_content,
                     language=language,
                     emit=emit,
                 )
@@ -261,3 +276,19 @@ def post_message(
             yield f"data: {json.dumps(item)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/messages/{message_id}/feedback")
+def message_feedback(
+    message_id: str,
+    body: FeedbackIn,
+    session: Session = Depends(get_session),
+    user: OptionalUser = None,
+) -> dict:
+    row = session.get(ChatMessage, message_id)
+    if row is None or row.role != "assistant":
+        raise HTTPException(404, "Reply not found.")
+    _conversation(session, row.conversation_id, user)
+    row.feedback = body.value or None
+    session.commit()
+    return {"id": row.id, "feedback": row.feedback}

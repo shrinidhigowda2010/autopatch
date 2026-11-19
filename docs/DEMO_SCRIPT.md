@@ -1,39 +1,25 @@
-# Three-minute walkthrough
+# FixPilot: 5-minute judge demo
 
-Use the home page. Leave `GEMINI_API_KEY` empty if you want to show that the product does not depend on the network. The footer status will read **AI engine: standby** — analysis still runs.
+**URL:** https://autopatch-7yyu.onrender.com (or http://127.0.0.1:8000 locally)
+**Before you start:** sign in once so the Coder ID shows up, and keep a second tab open on `/race`. Have one screenshot of buggy code ready on the desktop.
 
-## 0:00 — Open the marks calculator
+| Time | Screen | What you do | What you say |
+| --- | --- | --- | --- |
+| 0:00 | Home | Move the mouse over the 3D code slab while the lines turn red → green and the shield rises. Point at the counter strip. | "FixPilot finds bugs, explains them, fixes them and proves the fix, with a person approving every change. These counters come from our real benchmark: 12 of 12 bugs found, 12 of 12 fixed, 0 false positives." |
+| 0:30 | Home → Scan | Click **Marks calculator**. The scan starts by itself. | "This is the example from the problem statement: marks below 0 or above 100 are accepted, and an empty list crashes it." |
+| 0:50 | Scan | Point at the file tree, the tool line (pylint, bandit…) and the findings with severity and confidence. | "Two layers run in parallel: real static tools and Gemini. If Gemini is down, the static layer still works." |
+| 1:15 | Explain | Open the range bug. Read the trigger (-5 or 150). Toggle **Student mode**, then switch to ಕನ್ನಡ for one line. | "We explain the input that triggers the bug, not just a line number, in simple words and local languages." |
+| 1:45 | Fix | Show the red/green diff and the risk badge. Click **Approve**. | "The patch is minimal. Nothing is written until I approve. After approval the tests re-run, and a failure rolls the change back automatically." |
+| 2:10 | Fix → Prove it | Click **🛡 Break-It attack**, then **⚖️ AI Debate Room**. | "Break-It throws 15 hostile inputs at the old and new code: the old code fails, the new code survives. In the Debate Room one AI attacks the fix, another defends it, and a judge gives a verdict." |
+| 2:50 | Test | Click **Run before and after**. | "Existing tests, generated edge cases before and after, and a regression run, all inside a sandbox with no secrets and strict limits." |
+| 3:20 | Assistant | Open **Assistant**. Show the greeting, pick **Review** mode, attach the screenshot (or click a suggestion chip). When it replies, click 👍. | "It's a project-aware chat: it reads screenshots, accepts voice in three languages, and shows a patch card that goes through the same approval flow. Feedback is stored." |
+| 4:00 | `/race` tab | Paste `def average(m): return sum(m)/len(m)` and press **Start the race**. | "The Live Repair Race runs the real pipeline: bug found, fixed, verified, in about 8 seconds." |
+| 4:30 | History → Benchmark | Show the Decision Log with the Coder ID, click **Export PDF**, then open **Benchmark**. | "Every decision is logged against my Coder ID and exported as a report. The benchmark is reproducible with one command." |
+| 4:50 | Wrap up | Back on Home. | "Detect, repair, verify, with a human in charge. That's FixPilot." |
 
-On the home page, under **Explore example projects**, click **Marks calculator**. Say: this is a classic buggy marks program. It should reject marks below 0 and above 100. The scan starts on its own.
+## If something goes wrong
 
-## 0:25 — Scan
-
-Point at the file tree, the language, the empty dependency list, and the import graph. When the bugs appear, point at the two findings: marks outside 0–100, and the crash on an empty list. Mention the tool line at the bottom so judges see pylint and bandit actually ran.
-
-## 0:55 — Explain
-
-Open the marks bug. Read the root cause and the trigger: type -5 or 150. Toggle **Student mode** and show the shorter sentence. Switch the language to ಕನ್ನಡ or हिन्दी for one sentence, then back to English.
-
-## 1:25 — Fix
-
-Open Fix. Show Ask Every Fix mode, the red before and the green after, and the unified diff. Do not approve yet. Say the original upload is untouched.
-
-## 1:40 — Test
-
-Open Test and click **Run before and after**. The list updates live. Say what each block means: existing tests, generated edge tests before and after, and the regression suite.
-
-## 2:15 — Approve
-
-Go back to Fix. Approve one fix (or use Apply all safe fixes after the pre-flight list). Say risky or low-confidence patches stay for a person.
-
-## 2:35 — Dashboard, history, export
-
-Open Dashboard and show the health score and charts. Open History / Decision Log and download the PDF or the zip. Say the zip is the workspace after accepted patches.
-
-## 2:50 — Benchmark
-
-Open Benchmark. The table is the last measured run: 8 projects, 12 bugs, 100% detection, 100% fix success, 0 false positives.
-
-## If something fails
-
-Stay on the marks calculator. Static analysis and project knowledge do not need a network. If a test run is slow, the event list will keep moving.
+- **Gemini is slow or offline:** keep going. The scan, patches, tests, Break-It and Race all work on the static layer. The footer shows *AI engine: standby*.
+- **The first AI call is slow:** the primary model can take a few seconds to warm up. Talk over the tool line while it runs.
+- **Free-tier cold start (Render):** open the URL a minute before the demo.
+- **Break-It shows a note instead of a scoreboard:** it works on Python functions. Stay on the marks calculator.

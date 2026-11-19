@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { PageSkeleton } from "../components/Skeleton";
 
 interface Result {
   detection_rate?: number;
@@ -55,6 +56,11 @@ export default function Benchmark() {
         {busy ? "Measuring… this takes a minute" : "Run benchmark"}
       </button>
       {error && <p className="mt-4 text-bug">{error}</p>}
+      {!result && !error && (
+        <div className="mt-6">
+          <PageSkeleton label="Loading benchmark results" />
+        </div>
+      )}
       {result?.note && <p className="mt-4 text-mist">{result.note}</p>}
       {result?.detection_rate !== undefined && (
         <>

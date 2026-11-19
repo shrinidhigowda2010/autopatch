@@ -206,6 +206,7 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, default="")
     tool_steps_json: Mapped[str] = mapped_column(Text, default="[]")
     patches_json: Mapped[str] = mapped_column(Text, default="[]")
+    feedback: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1 helpful, -1 not helpful
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

@@ -1,8 +1,9 @@
 import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
-import { createContext, useContext, useMemo, useState } from "react";
+import { Suspense, createContext, useContext, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useAuth } from "../auth";
 import AiStatus from "./AiStatus";
+import { PageSkeleton } from "./Skeleton";
 import Logo from "./Logo";
 
 interface Prefs {
@@ -81,7 +82,7 @@ export default function Shell() {
                   aria-current={stepActive(path) ? "page" : undefined}
                   className={navClass(stepActive(path))}
                 >
-                  <span className="mr-2 font-mono text-xs opacity-60">0{index + 1}</span>
+                  <span className="mr-2 font-mono text-xs opacity-80">0{index + 1}</span>
                   {label}
                 </Link>
               ))}
@@ -192,7 +193,9 @@ export default function Shell() {
                 transition={{ duration: 0.28, ease: "easeOut" }}
                 className="page-enter"
               >
-                <Outlet />
+                <Suspense fallback={<PageSkeleton />}>
+                  <Outlet />
+                </Suspense>
               </motion.div>
             </AnimatePresence>
           </main>
@@ -206,3 +209,4 @@ export default function Shell() {
     </PrefsContext.Provider>
   );
 }
+

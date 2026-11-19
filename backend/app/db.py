@@ -41,6 +41,9 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 # create_all will not ALTER existing tables. Add new columns for upgrades.
 _SQLITE_COLUMN_MIGRATIONS = {
+    "chat_messages": [
+        ("feedback", "INTEGER"),
+    ],
     "projects": [
         ("user_id", "VARCHAR(16)"),
         ("is_guest", "BOOLEAN DEFAULT 0"),
