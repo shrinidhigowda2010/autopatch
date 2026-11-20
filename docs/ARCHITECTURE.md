@@ -51,7 +51,7 @@ flowchart TB
 
 `users` stores `coder_id` (unique, e.g. `FP-CODER-7F3K2`; older `AP-CODER-` IDs still sign in), email, bcrypt `password_hash`, role (`student` / `developer` / `admin`), and login timestamps. `app/auth.py` issues HS256 JWTs signed with `JWT_SECRET` (24h). Routes take an optional Bearer token via `get_optional_user`; `GET /api/auth/me` requires one.
 
-Projects, scans, patches, and decisions carry nullable `user_id`. Guest / demo mode creates projects with `is_guest=true` and no owner — judges can try the pipeline without signing up. Signed-in non-admins only list and open their own projects; admins see all. Profile stats aggregate scans, bugs, and decisions for that user.
+Projects, scans, patches, and decisions carry nullable `user_id`. Guest mode creates projects with `is_guest=true` and no owner — judges can try the pipeline without signing up. Signed-in non-admins only list and open their own projects; admins see all. Profile stats aggregate scans, bugs, and decisions for that user.
 
 ## Auto-Correct Mode
 
